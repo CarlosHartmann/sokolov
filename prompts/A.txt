@@ -1,8 +1,10 @@
-In the following text, try to see if you can find the antecedent of the pronoun "they". If it is impossible to know the antecedent from the text alone, answer "antecedent outside". Otherwise, simply state the following two informations:
+In the following text, try to see if you can find the antecedent of the{} "{}" pronoun (case-insensitive). If it is impossible to know the antecedent from the text alone, answer "antecedent outside". Otherwise, simply state the following two informations:
 
 1) the antecedent of the pronoun, either quoting it from the text or, if it is inferable via context, naming or describing it.
 
-Say that it is an "impersonal they" if it is a sentence like "they say fast food is bad for you", where "they" refers to people in general, or vaguely refers to people above/in power. Such an impersonal "they" is often used for creators of TV shows and games, as in "They gave him a bigger role in the second season".
+Say that it is an "impersonal they" if it is a sentence like "they say fast food is bad for you", where "they" refers to people in general, or vaguely refers to people above/in power. Such an impersonal "they" is often used for creators of TV shows and games, as in "They gave him a bigger role in the second season", or for actions of a large institution.
+
+The antecedent may be outside of the comment as the text is a Reddit comment taken out of context.
 
 2) if the antecedent is plural or not. There are some difficult cases for this, so follow these rules:
 
@@ -10,7 +12,14 @@ Say that it is an "impersonal they" if it is a sentence like "they say fast food
 * an indefinite statement such as "a teacher" is grammatically singular despite potentially talking about many teachers
 * words like "everyone", "anyone", "no one" etc also refer to many people but are grammatically singular, hence you should answer singular.
 * the impersonal "they" explained above is always plural.
+* be strict, even if it is likely to be singular or plural, if it is not absolutely certain from the comment and could in theory also be the opposite of what we expect, it is ambiguous. In fact, many cases are ambiguous.
 
-Give your response in the format "The antecedent is [1] and it is [2: singular/plural]". You can add any explanations or clarifications after this sentence in your response in case that it requires context information or reasoning.
+You must give your response in the format "The antecedent is [1] and it is [2: singular/plural/ambiguous]" so that I can process your answer quantitatively. You may add any explanations or clarifications after this sentence in your response in case that it requires context information or reasoning. Just make sure to keep the first sentence in the given format.
+
+In some cases, the antecedent cannot be known from the text alone but something else tells you that it must be singular or plural. For example "they" in "they are both great" can only be plural as "both" means there are two. You would then answer "The antecedent is not in the text and it is plural.".
 
 Use your general knowledge to infer the antecedents and note that there can be misspellings or other irregularities/errors present in the text.
+
+The text in question:
+
+{}
