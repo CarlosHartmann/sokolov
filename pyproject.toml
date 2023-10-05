@@ -9,6 +9,7 @@ readme = "README.md"
 python = "^3.11"
 openpyxl = "^3.1.2"
 num2words = "^0.5.12"
+requests = "^2.31.0"
 
 
 [build-system]

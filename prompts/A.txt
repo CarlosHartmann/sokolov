@@ -22,4 +22,4 @@ Use your general knowledge to infer the antecedents and note that there can be m
 
 The text in question:
 
-{}
+"{}"

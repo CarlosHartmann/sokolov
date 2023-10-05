@@ -22,6 +22,7 @@ from openpyxl.utils import get_column_letter
 
 # project resources
 from argparse_assets import handle_args
+from openai_assets import moderation_check
 
 
 def get_ord(word: str):
@@ -119,7 +120,7 @@ def process_experiment_file(file: str, args):
 
     # Add new columns
     last_col = data_sheet.max_column
-    headers = ["prompt", "human_annotation", "LLM_annotation", "inter-annotator_agreement"]
+    headers = ["prompt", "human_annotation", "LLM_response", "LLM_annotation", "inter-annotator_agreement"]
     for idx, header in enumerate(headers, start=1):
         data_sheet.cell(row=1, column=last_col + idx, value=header)
 
@@ -166,12 +167,19 @@ def process_experiment_file(file: str, args):
     for idx, category in enumerate(categories, start=2):
         results_sheet.cell(row=idx, column=1, value=category)
 
+    directory = os.path.dirname(file)
+
+    if args.moderation:
+        filtered_file = os.path.join(directory, "filtered-out-comments.xlsx")
+        moderation_check(data_sheet, filtered_file)
+
     # Metrics calculation
     data_sheet_max_row = last_row
     human_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("human_annotation") + 1)
     llm_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("LLM_annotation") + 1)
     wb.add_named_style(NamedStyle(name="percent_style", number_format="0.0%"))
     add_metric_formulas(results_sheet, 'data', human_annotation_col_letter, llm_annotation_col_letter, data_sheet_max_row)
+
 
     # Save file
     directory = os.path.dirname(file)
@@ -183,22 +191,16 @@ def process_experiment_file(file: str, args):
 
 
 def main():
-    logging.basicConfig(level=logging.NOTSET, format='INFO: %(message)s')
+    #logging.basicConfig(level=logging.NOTSET, format='INFO: %(message)s')
     args = handle_args()
 
     file = args.inputfile
 
     if args.task == "preparation":
         process_experiment_file(file, args)
-
-    #TODO:
-    #-remove unannotated comments (when there is no "X" in the column called "annotated")
-    #-remove comments according to filters
-    #-add columns "prompt", "human annotation", "LLM annotation", "inter-annotator agreement"
-    #-fill in column "prompt" using args.prompt
-    #-add extra sheet for experiment evaluation
-    
-    # write in prompt, modifying it for each comment
+    #TODO:    
+    #elif args.task == "experiment":
+    #    conduct_experiment(file, args.llm)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class UnknownTask(Exception):
 
 
 def task_type(string) -> str:
-    known_tasks = ['preparation']
+    known_tasks = ['preparation', 'experiment']
     if string not in known_tasks:
         raise UnknownTask(f'{string} is not a known task to Sokolov.')
     else:
@@ -75,6 +75,8 @@ def define_parser() -> argparse.ArgumentParser:
                         help="The file containing the prompt design to be used.")
     parser.add_argument('--llm', '-LLM', type=str, required=False,
                         help="The LLM to be used for the experiment.")
+    parser.add_argument('--moderation', '-M', action="store_true",
+                        help="Send all comments to openAI moderation to check if they are acceptable to be used on GPT.")
 
     return parser
 
