@@ -72,6 +72,17 @@ def get_flagged_categories(comment):
     return flagged_categories
 
 
+def get_llm_response(prompt, llm):
+    pass
+
+
+def interpreted(llm_response):
+    pass
+
+
+def complete_statistics(worksheet):
+    #-on the results sheet, fill in IAA columns and overall IAA cell
+    pass
 
 def conduct_experiment(workbook: str, llm: str):
     '''
@@ -80,12 +91,36 @@ def conduct_experiment(workbook: str, llm: str):
     Also requires a "results" worksheet that will be extended with the total IAA and should already have the necessary formulas to display the overall results.
     '''
 
-    #TODO:
-    #-read prompt from prompt column
-    #-send to openAI under the correct LLM to be tested with
-    #-fill in response to response column
-    #-automatically interpret response via rules and fill in llm_annotation column
-    #-fill-in IAA column of data sheet
-    #-on the results sheet, fill in IAA columns and overall IAA cell
+    # initiate two required worksheets
+    data_sheet = workbook['data']
+    results_sheet = workbook['results']
+
+    # get required column numbers
+    # for the data sheet
+    prompt_col = get_column_by_header(data_sheet, 'prompt')
+    response_col = get_column_by_header(data_sheet, 'LLM_response')
+    annotation_col = get_column_by_header(data_sheet, 'LLM_annotation')
+    human_annotation_col = get_column_by_header(data_sheet, 'human_annotation')
+    IAA_col = get_column_by_header(data_sheet, 'inter-annotator_agreement')
+    # for the results sheet
+    results_plural = get_column_by_header(results_sheet, 'plural')
+    plural_iaa = results_plural+2
+    results_singular = get_column_by_header(results_sheet, 'singular')
+    singular_iaa = results_singular+2
+
+    lastrow = get_last_row_with_data(data_sheet)
+
+    for row in range(2, lastrow+1):
+        prompt = data_sheet.cell(row=row, column=prompt_col).value # read prompt
+        response = get_llm_response(prompt, llm) # send it to LLM
+        data_sheet.cell(row=row, column=response_col).value = response
+        data_sheet.cell(row=row, column=annotation_col).value = interpreted(response)
+
+        llm = data_sheet.cell(row=row, column=annotation_col).value
+        human = data_sheet.cell(row=row, column=human_annotation_col).value
+        data_sheet.cell(row=row, column=IAA_col).value = "X" if llm == human else None
+
+    complete_statistics(results_sheet)
+    
 
     pass
