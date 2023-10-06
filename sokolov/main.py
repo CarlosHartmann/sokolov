@@ -15,22 +15,14 @@ import re
 import logging
 
 # installed libraries
-from num2words import num2words
 import openpyxl
 from openpyxl.styles import PatternFill, Font, NamedStyle
-from openpyxl.utils import get_column_letter
+
 
 # project resources
 from argparse_assets import handle_args
-from openai_assets import moderation_check
-
-
-def get_ord(word: str):
-	return num2words(word, ordinal=True)
-
-
-def read_span(text: str) -> tuple:
-    return (int(text.split(',')[0][1:]), int(text.split(',')[1][1:-1]))
+from openai_assets import moderation_check, conduct_experiment
+from excel_assets import *
 
 
 def translate_annotation(they_type: str) -> str:
@@ -39,54 +31,6 @@ def translate_annotation(they_type: str) -> str:
         return "plural"
     else:
         return "singular"
-
-
-def adapted(prompt: str, body: str, span: str) -> str:
-    span = read_span(span)
-    they_form = body[span[0]:span[1]]
-    if len(re.findall(they_form.lower(), body.lower())) == 1:
-        ordinal = ''
-    else:
-        matches = [elem.span()[0] for elem in re.finditer(they_form.lower(), body.lower())]
-        position = matches.index(span[0]) + 1
-        ordinal = f' {get_ord(position)}'
-
-    return prompt.format(ordinal, they_form, body)
-
-
-def add_metric_formulas(results_sheet, data_sheet, human_col_letter, llm_col_letter, data_sheet_max_row):
-    categories = ["singular", "plural", "ambiguous"]
-    
-    for idx, category in enumerate(categories, start=2):
-        tp_formula = f'SUMPRODUCT(({data_sheet}!{human_col_letter}$2:{human_col_letter}${data_sheet_max_row}="{category}")*({data_sheet}!{llm_col_letter}$2:{llm_col_letter}${data_sheet_max_row}="{category}"))'
-        fp_formula = f'SUMPRODUCT(({data_sheet}!{human_col_letter}$2:{human_col_letter}${data_sheet_max_row}<>"{category}")*({data_sheet}!{llm_col_letter}$2:{llm_col_letter}${data_sheet_max_row}="{category}"))'
-        tn_formula = f'SUMPRODUCT(({data_sheet}!{human_col_letter}$2:{human_col_letter}${data_sheet_max_row}<>"{category}")*({data_sheet}!{llm_col_letter}$2:{llm_col_letter}${data_sheet_max_row}<>"{category}"))'
-        fn_formula = f'SUMPRODUCT(({data_sheet}!{human_col_letter}$2:{human_col_letter}${data_sheet_max_row}="{category}")*({data_sheet}!{llm_col_letter}$2:{llm_col_letter}${data_sheet_max_row}<>"{category}"))'
-        
-        results_sheet.cell(row=idx, column=2).value = f'={tp_formula}'
-        results_sheet.cell(row=idx, column=3).value = f'={fp_formula}'
-        results_sheet.cell(row=idx, column=4).value = f'={tn_formula}'
-        results_sheet.cell(row=idx, column=5).value = f'={fn_formula}'
-        
-        recall_formula = f'={get_column_letter(2)}{idx}/({get_column_letter(2)}{idx}+{get_column_letter(5)}{idx})'
-        precision_formula = f'={get_column_letter(2)}{idx}/({get_column_letter(2)}{idx}+{get_column_letter(3)}{idx})'
-        accuracy_formula = f'({get_column_letter(2)}{idx}+{get_column_letter(4)}{idx})/({get_column_letter(2)}{idx}+{get_column_letter(3)}{idx}+{get_column_letter(4)}{idx}+{get_column_letter(5)}{idx})'
-        
-        results_sheet.cell(row=idx, column=6).value = f'={recall_formula}'
-        results_sheet.cell(row=idx, column=7).value = f'={precision_formula}'
-        results_sheet.cell(row=idx, column=8).value = f'={accuracy_formula}'
-    
-    for row in results_sheet.iter_rows(min_row=2, max_row=4, min_col=6, max_col=8):
-        for cell in row:
-            cell.style = "percent_style"
-
-
-def get_last_row_with_data(sheet, column="A"):
-    # Loop from the bottom up until a non-empty cell is found
-    for row in range(sheet.max_row, 0, -1):
-        if sheet[f"{column}{row}"].value:
-            return row
-    return None  # If no data found
 
 
 def process_experiment_file(file: str, args):
@@ -180,14 +124,12 @@ def process_experiment_file(file: str, args):
     wb.add_named_style(NamedStyle(name="percent_style", number_format="0.0%"))
     add_metric_formulas(results_sheet, 'data', human_annotation_col_letter, llm_annotation_col_letter, data_sheet_max_row)
 
+    add_statistics(wb)
 
     # Save file
     directory = os.path.dirname(file)
     new_filepath = os.path.join(directory, "experiment.xlsx")
     wb.save(new_filepath)
-
-
-
 
 
 def main():
@@ -198,9 +140,8 @@ def main():
 
     if args.task == "preparation":
         process_experiment_file(file, args)
-    #TODO:    
-    #elif args.task == "experiment":
-    #    conduct_experiment(file, args.llm)
+    elif args.task == "experiment":
+        conduct_experiment(file, args.llm)
 
 
 if __name__ == "__main__":

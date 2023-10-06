@@ -6,6 +6,8 @@ openai_assets: All things related to the openAI API.
 import openpyxl
 import requests
 
+from excel_assets import *
+
 api_key ="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"
 
 def moderation_check(worksheet, output_directory):
@@ -68,3 +70,22 @@ def get_flagged_categories(comment):
             flagged_categories.append(category)
     
     return flagged_categories
+
+
+
+def conduct_experiment(workbook: str, llm: str):
+    '''
+    Central function for conducting experiments.
+    Requires a workbook that will have the necessary headers for the experiment (prompt, LLM_response, LLM_annotation, human_annotation, inter-annotator-agreement).
+    Also requires a "results" worksheet that will be extended with the total IAA and should already have the necessary formulas to display the overall results.
+    '''
+
+    #TODO:
+    #-read prompt from prompt column
+    #-send to openAI under the correct LLM to be tested with
+    #-fill in response to response column
+    #-automatically interpret response via rules and fill in llm_annotation column
+    #-fill-in IAA column of data sheet
+    #-on the results sheet, fill in IAA columns and overall IAA cell
+
+    pass
