@@ -51,6 +51,7 @@ def process_experiment_file(file: str, args):
             rows_to_delete.append(idx)
 
         # Remove comments based on filter_length
+        # TODO: Implement openAI token length limits!
         if args.length:
             comment_body_col_idx = [cell.value for cell in data_sheet[1]].index("comment_body")
             if len(row[comment_body_col_idx].value) > args.length:
