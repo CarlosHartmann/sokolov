@@ -21,7 +21,7 @@ from openpyxl.styles import PatternFill, Font, NamedStyle
 
 # project resources
 from argparse_assets import handle_args
-from openai_assets import moderation_check, conduct_experiment
+from openai_assets import moderation_check, conduct_experiment, count_tokens
 from excel_assets import *
 
 
@@ -31,6 +31,25 @@ def translate_annotation(they_type: str) -> str:
         return "plural"
     else:
         return "singular"
+
+
+def get_ord(word: str):
+	return num2words(word, ordinal=True)
+
+def read_span(text: str) -> tuple:
+    return (int(text.split(',')[0][1:]), int(text.split(',')[1][1:-1]))
+
+def adapted(prompt: str, body: str, span: str) -> str:
+    span = read_span(span)
+    they_form = body[span[0]:span[1]]
+    if len(re.findall(they_form.lower(), body.lower())) == 1:
+        ordinal = ''
+    else:
+        matches = [elem.span()[0] for elem in re.finditer(they_form.lower(), body.lower())]
+        position = matches.index(span[0]) + 1
+        ordinal = f' {get_ord(position)}'
+
+    return prompt.format(ordinal, they_form, body)
 
 
 def process_experiment_file(file: str, args):
@@ -51,11 +70,18 @@ def process_experiment_file(file: str, args):
             rows_to_delete.append(idx)
 
         # Remove comments based on filter_length
-        # TODO: Implement openAI token length limits!
         if args.length:
             comment_body_col_idx = [cell.value for cell in data_sheet[1]].index("comment_body")
-            if len(row[comment_body_col_idx].value) > args.length:
-                rows_to_delete.append(idx)
+            body = row[comment_body_col_idx]
+            span_col_idx = [cell.value for cell in data_sheet[1]].index("span")
+            span = row[span_col_idx]
+            if args.unit == 'tokens':
+                tk_length = count_tokens(adapted(args.prompt, body, span))
+                if tk_length > args.length:
+                    rows_to_delete.append(idx)
+            elif args.unit == 'chars':
+                if body > args.length:
+                    rows_to_delete.append(idx)
 
     # delete all rows marked for deletion
     for idx in reversed(rows_to_delete):

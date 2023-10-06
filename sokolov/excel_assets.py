@@ -8,25 +8,6 @@ from openpyxl.utils import get_column_letter
 from num2words import num2words
 
 
-def get_ord(word: str):
-	return num2words(word, ordinal=True)
-
-def read_span(text: str) -> tuple:
-    return (int(text.split(',')[0][1:]), int(text.split(',')[1][1:-1]))
-
-def adapted(prompt: str, body: str, span: str) -> str:
-    span = read_span(span)
-    they_form = body[span[0]:span[1]]
-    if len(re.findall(they_form.lower(), body.lower())) == 1:
-        ordinal = ''
-    else:
-        matches = [elem.span()[0] for elem in re.finditer(they_form.lower(), body.lower())]
-        position = matches.index(span[0]) + 1
-        ordinal = f' {get_ord(position)}'
-
-    return prompt.format(ordinal, they_form, body)
-
-
 def add_metric_formulas(results_sheet, data_sheet, human_col_letter, llm_col_letter, data_sheet_max_row):
     categories = ["singular", "plural", "ambiguous"]
     

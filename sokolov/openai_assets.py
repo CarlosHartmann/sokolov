@@ -8,6 +8,17 @@ import requests
 
 from excel_assets import *
 
+import openai 
+from transformers import GPT2TokenizerFast
+
+
+def count_tokens(text: str) -> int:
+    """Counts the length of input text in GPT tokens."""
+    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    encoded = tokenizer.encode(text)
+    numberOfTokens = len(encoded)
+    return numberOfTokens
+
 api_key ="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"
 
 def moderation_check(worksheet, output_directory):
@@ -77,6 +88,14 @@ def get_llm_response(prompt, llm):
 
 
 def interpreted(llm_response):
+    if "it is singular" in llm_response:
+        return "singular"
+    elif "it is plural" in llm_response:
+        return "plural"
+    elif "it is ambiguous" in llm_response:
+        return "ambiguous"
+    else:
+        return None
     pass
 
 

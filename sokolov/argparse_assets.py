@@ -69,6 +69,8 @@ def define_parser() -> argparse.ArgumentParser:
     # filters
     parser.add_argument('--length', '-L', type=int, required=False,
                         help= "Length filter for the comments. Any comment that's longer will be deleted from the file.")
+    parser.add_argument('--unit', '-U', required=False,
+                        help="The unit for the length filter. Required if length filter is set to True. Can be either 'tokens' or 'chars'.")
 
     # experimenting
     parser.add_argument('--prompt', '-P', type=file_path, required=False,
@@ -85,6 +87,18 @@ def handle_args() -> argparse.Namespace:
     """Handle argument-related edge cases by throwing meaningful errors."""
     parser = define_parser()
     args = parser.parse_args()
+
+    if args.length and not args.unit:
+        print("Length filter requires the unit. Either 'chars' or 'tokens'.")
+        exit()
+    
+    if args.task == 'preparation' and not args.prompt:
+        print("Prompt needed for filling in during preparation.")
+        exit()
+
+    if args.task == 'experiment' and not args.llm:
+        print("LLM to be used not set.")
+        exit()
 
     with open(args.prompt, "r", encoding="utf-8") as infile:
         prompt_text = infile.read()
