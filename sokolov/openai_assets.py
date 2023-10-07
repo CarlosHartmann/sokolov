@@ -191,6 +191,8 @@ def conduct_experiment(file: str, llm: str):
     lastrow = get_last_row_with_data(data_sheet)
 
     for row in range(2, lastrow+1):
+        if row % 20 == 0:
+            workbook.save(file)
         prompt = data_sheet.cell(row=row, column=prompt_col).value # read prompt
 
         if not data_sheet.cell(row=row, column=response_col).value: # don't wanna redo what's already been requested before
