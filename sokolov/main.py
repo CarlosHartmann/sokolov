@@ -151,7 +151,6 @@ def process_experiment_file(file: str, args):
     data_sheet_max_row = last_row
     human_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("human_annotation") + 1)
     llm_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("LLM_annotation") + 1)
-    wb.add_named_style(NamedStyle(name="percent_style", number_format="0.0%"))
     add_metric_formulas(results_sheet, 'data', human_annotation_col_letter, llm_annotation_col_letter, data_sheet_max_row)
 
     add_statistics(wb)
