@@ -14,6 +14,7 @@ import logging
 
 # installed libraries
 import openpyxl
+from openpyxl import utils
 from openpyxl.styles import PatternFill, Font, NamedStyle
 
 
@@ -40,6 +41,7 @@ def read_span(text: str) -> tuple:
 def adapted(prompt: str, body: str, span: str) -> str:
     span = read_span(span)
     they_form = body[span[0]:span[1]]
+
     if len(re.findall(they_form.lower(), body.lower())) == 1:
         ordinal = ''
     else:
@@ -71,6 +73,7 @@ def process_experiment_file(file: str, args):
         if args.length:
             comment_body_col_idx = [cell.value for cell in data_sheet[1]].index("comment_body")
             body = row[comment_body_col_idx]
+            body = utils.escape.unescape(body)
             span_col_idx = [cell.value for cell in data_sheet[1]].index("span")
             span = row[span_col_idx]
             if args.unit == 'tokens':
@@ -97,6 +100,7 @@ def process_experiment_file(file: str, args):
     for idx, row in enumerate(data_sheet.iter_rows(min_row=2, max_row=last_row, values_only=True), 2):
         comment_body_col_idx = [cell.value for cell in data_sheet[1]].index("comment_body")
         body = row[comment_body_col_idx]
+        body = utils.escape.unescape(body)
 
         human_col_idx = [cell.value for cell in data_sheet[1]].index("human_annotation")
 
