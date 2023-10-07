@@ -66,7 +66,8 @@ def process_experiment_file(file: str, args):
             rows_to_delete.append(idx)
 
         noise_col_idx = [cell.value for cell in data_sheet[1]].index("noise")
-        if row[noise_col_idx] == "X":
+        doubt_col_idx = [cell.value for cell in data_sheet[1]].index("doubt")
+        if row[noise_col_idx] == "X" or row[doubt_col_idx] == "X":
             rows_to_delete.append(idx)
 
         # Remove comments based on filter_length
