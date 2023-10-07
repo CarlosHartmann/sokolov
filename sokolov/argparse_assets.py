@@ -100,9 +100,9 @@ def handle_args() -> argparse.Namespace:
         print("LLM to be used not set.")
         exit()
 
-    with open(args.prompt, "r", encoding="utf-8") as infile:
-        prompt_text = infile.read()
-    
-    args.prompt = prompt_text
+    if args.prompt:
+        with open(args.prompt, "r", encoding="utf-8") as infile:
+            prompt_text = infile.read()
+        args.prompt = prompt_text
     
     return args

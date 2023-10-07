@@ -43,11 +43,11 @@ def get_last_row_with_data(sheet, column="A"):
     return None  # If no data found
 
 
-def get_column_by_header(worksheet, header_name):
+def get_column_by_header(worksheet, header_name, out="letter"):
     """Returns the column letter of a given header_name in worksheet."""
     for column in worksheet.iter_cols(1, worksheet.max_column):
         if column[0].value == header_name:
-            return get_column_letter(column[0].column)
+            return get_column_letter(column[0].column) if out == "letter" else column[0].column
     return None
 
 
