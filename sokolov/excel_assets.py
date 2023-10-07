@@ -32,7 +32,7 @@ def add_metric_formulas(results_sheet, data_sheet, human_col_letter, llm_col_let
     
     for row in results_sheet.iter_rows(min_row=2, max_row=4, min_col=6, max_col=8):
         for cell in row:
-            cell.style = "percent_style"
+            cell.number_format = '0.00%'
 
 
 def get_last_row_with_data(sheet, column="A"):
