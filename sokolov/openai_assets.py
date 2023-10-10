@@ -161,6 +161,15 @@ def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, I
     results_sheet.cell(row=lastrow, column=ambig_iaa_col).value = f'=IF({comparison_col_letter}{lastrow}>0,{calculation}, "--")'
     results_sheet.cell(row=lastrow, column=ambig_iaa_col).number_format = '0.00%'
 
+    # total IAA %
+    for col in [plural_col, singular_col]:
+        iaa_col = col+2
+        iaa_letter = get_column_letter(iaa_col)
+        amt_letter = get_column_letter(iaa_col-1)
+        last_data_row = get_last_row_with_data(results_sheet, column=iaa_letter)
+        formula = f'=SUMPRODUCT({amt_letter}2:{amt_letter}{last_data_row}, {iaa_letter}2:{iaa_letter}{last_data_row}) / SUM({amt_letter}2:{amt_letter}{last_data_row})'
+        results_sheet.cell(row=lastrow, column=iaa_col).value = formula
+
 
 
 def conduct_experiment(file: str, llm: str):
