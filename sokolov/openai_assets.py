@@ -206,6 +206,11 @@ def conduct_experiment(file: str, llm: str):
     
     workbook.save(file) # save before doing the statistics part
 
+    # Metrics calculation
+    human_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("human_annotation") + 1)
+    llm_annotation_col_letter = get_column_letter([cell.value for cell in data_sheet[1]].index("LLM_annotation") + 1)
+    add_metric_formulas(results_sheet, 'data', human_annotation_col_letter, llm_annotation_col_letter, lastrow)
+
     complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, get_column_letter(IAA_col), ambiguous_col)
 
     workbook.save(file)
