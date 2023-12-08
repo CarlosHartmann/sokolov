@@ -2,18 +2,24 @@
 openai_assets: All things related to the openAI API. 
 '''
 
+import spacy
+nlp = spacy.load("en_core_web_sm")
 
 import openpyxl
 import requests
 import time
 
-from excel_assets import *
+from sokolov.excel_assets import *
 
 import openai 
 from transformers import GPT2TokenizerFast
 
 import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
+
+
+def read_span(text: str) -> tuple:
+    return (int(text.split(',')[0][1:]), int(text.split(',')[1][1:-1]))
 
 
 def count_tokens(text: str) -> int:
@@ -159,6 +165,70 @@ def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, I
         results_sheet.cell(row=lastrow, column=iaa_col).value = formula
 
 
+def is_obvious_case(body, span):
+    body = body.lower()  # Convert the text to lowercase to ensure case insensitivity
+    start, end = span[0], span[1]
+
+    doc = nlp(body)
+    
+    # Find the spaCy token corresponding to the start index
+    start_token_index = None
+    for token in doc:
+        if token.idx == start:
+            start_token_index = token.i
+            break
+
+    # Handle cases where the start token is not found
+    if start_token_index is None:
+        return False
+    
+    # Extract the pronoun
+    pronoun = doc[start_token_index].text.lower()
+
+    # Check for "NUM of them"
+    if start_token_index > 0 and doc[start_token_index - 2].pos_ == "NUM" and doc[start_token_index - 1].text == "of" and pronoun == "them":
+        return True
+    
+    # Check for "they VERB each other" or "they VERB one another"
+    if pronoun == "they" and start_token_index < len(doc) - 3:
+        following_phrase = ' '.join([doc[start_token_index + 2].text.lower(), doc[start_token_index + 3].text.lower()])
+        if doc[start_token_index + 1].pos_ == "VERB" and following_phrase in ["each other", "one another"]:
+            return True
+
+    # Get last three words before the pronoun and first three words after the pronoun
+    preceding_text = body[:start].strip().split()[-3:]  
+    following_text = body[end:].strip().split()[:3]
+
+    # Joining the words to form phrases to match with the expressions
+    last_two_words = ' '.join(preceding_text[-2:])
+    last_three_words = ' '.join(preceding_text)
+    next_two_words = ' '.join(following_text[:2])
+    next_three_words = ' '.join(following_text)
+
+    # List of special expressions
+    special_expressions = [
+        "all of them",
+        "some of them",
+        "most of them",
+        "both of them",
+        "pair of them",
+        "either of them",
+        "they are all",
+        "they were all",
+        "they will all"
+    ]
+
+    # Checking if the phrase is in the list of special expressions
+    is_special_expression = ' '.join([last_two_words, pronoun]) in special_expressions or \
+                            ' '.join([last_three_words, pronoun]) in special_expressions
+
+    # Checking phrases that include words after the pronoun
+    is_special_expression = is_special_expression or \
+                            ' '.join([pronoun, next_two_words]) in special_expressions or \
+                            ' '.join([pronoun, next_three_words]) in special_expressions
+
+    return is_special_expression
+
 
 def conduct_experiment(file: str, llm: str):
     '''
@@ -179,6 +249,11 @@ def conduct_experiment(file: str, llm: str):
     annotation_col = get_column_by_header(data_sheet, 'LLM_annotation', out="num")
     human_annotation_col = get_column_by_header(data_sheet, 'human_annotation', out="num")
     IAA_col = get_column_by_header(data_sheet, 'inter-annotator_agreement', out="num")
+
+    # for the plural_they filter
+    body_col = get_column_by_header(data_sheet, 'comment_body', out="num")
+    span_col = get_column_by_header(data_sheet, 'span', out="num")
+
     # for statistics
     they_type_col = get_column_by_header(data_sheet, 'they_type')
     outside_col = get_column_by_header(data_sheet, 'referent_outside')
@@ -192,9 +267,17 @@ def conduct_experiment(file: str, llm: str):
             workbook.save(file)
         prompt = data_sheet.cell(row=row, column=prompt_col).value # read prompt
 
+        #for plural_they filter
+        body = data_sheet.cell(row=row, column=body_col).value
+        span = data_sheet.cell(row=row, column=span_col).value
+
         if not data_sheet.cell(row=row, column=response_col).value: # don't wanna redo what's already been requested before
-            response = get_llm_response(prompt, llm) # send it to LLM
-            data_sheet.cell(row=row, column=response_col).value = response
+            if not is_obvious_case(body, span):
+                response = get_llm_response(prompt, llm) # send it to LLM
+                data_sheet.cell(row=row, column=response_col).value = response
+            else:
+                data_sheet.cell(row=row, column=response_col).value = "Per rule-based 'plural they' filter it is plural."
+
         data_sheet.cell(row=row, column=annotation_col).value = f'''=IF(ISNUMBER(SEARCH("singular", {response_col}{row})), "singular", IF(ISNUMBER(SEARCH("plural", {response_col}{row})), "plural", IF(ISNUMBER(SEARCH("ambiguous", {response_col}{row})), "ambiguous", "")))'''
 
         llm_annotation = data_sheet.cell(row=row, column=annotation_col).value
