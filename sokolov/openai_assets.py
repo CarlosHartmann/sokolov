@@ -116,18 +116,6 @@ def get_llm_response(prompt, llm):
     return response
 
 
-def interpreted(llm_response):
-    if "it is singular" in llm_response:
-        return "singular"
-    elif "it is plural" in llm_response:
-        return "plural"
-    elif "it is ambiguous" in llm_response:
-        return "ambiguous"
-    else:
-        return None
-    pass
-
-
 def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, IAA_col, ambiguous_col):
     plural_col = 12
     singular_col = plural_col+3
@@ -207,7 +195,7 @@ def conduct_experiment(file: str, llm: str):
         if not data_sheet.cell(row=row, column=response_col).value: # don't wanna redo what's already been requested before
             response = get_llm_response(prompt, llm) # send it to LLM
             data_sheet.cell(row=row, column=response_col).value = response
-        data_sheet.cell(row=row, column=annotation_col).value = interpreted(data_sheet.cell(row=row, column=response_col).value)
+        data_sheet.cell(row=row, column=annotation_col).value = f'''=IF(ISNUMBER(SEARCH("singular", {response_col}{row})), "singular", IF(ISNUMBER(SEARCH("plural", {response_col}{row})), "plural", IF(ISNUMBER(SEARCH("ambiguous", {response_col}{row})), "ambiguous", "")))'''
 
         llm_annotation = data_sheet.cell(row=row, column=annotation_col).value
         human_annotation = data_sheet.cell(row=row, column=human_annotation_col).value
