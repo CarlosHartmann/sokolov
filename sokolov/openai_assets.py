@@ -199,7 +199,7 @@ def conduct_experiment(file: str, llm: str):
 
         llm_annotation = data_sheet.cell(row=row, column=annotation_col).value
         human_annotation = data_sheet.cell(row=row, column=human_annotation_col).value
-        data_sheet.cell(row=row, column=IAA_col).value = "X" if llm_annotation == human_annotation else None # mark with 'X' if both interpreted annotations are identical
+        data_sheet.cell(row=row, column=IAA_col).value = f"=IF({human_annotation_col}{row} = {annotation_col}{row}, \"X\", \"\")"
     
     workbook.save(file) # save before doing the statistics part
 
