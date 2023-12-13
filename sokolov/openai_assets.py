@@ -246,8 +246,11 @@ def conduct_experiment(file: str, llm: str):
     # for the data sheet
     prompt_col = get_column_by_header(data_sheet, 'prompt', out="num")
     response_col = get_column_by_header(data_sheet, 'LLM_response', out="num")
+    response_letter = get_column_by_header(data_sheet, 'LLM_response', out="letter")
     annotation_col = get_column_by_header(data_sheet, 'LLM_annotation', out="num")
+    annotation_letter = get_column_by_header(data_sheet, 'LLM_annotation', out="letter")
     human_annotation_col = get_column_by_header(data_sheet, 'human_annotation', out="num")
+    human_annotation_letter = get_column_by_header(data_sheet, 'human_annotation', out="letter")
     IAA_col = get_column_by_header(data_sheet, 'inter-annotator_agreement', out="num")
 
     # for the plural_they filter
@@ -278,11 +281,11 @@ def conduct_experiment(file: str, llm: str):
             else:
                 data_sheet.cell(row=row, column=response_col).value = "Per rule-based 'plural they' filter it is plural."
 
-        data_sheet.cell(row=row, column=annotation_col).value = f'''=IF(ISNUMBER(SEARCH("singular", {response_col}{row})), "singular", IF(ISNUMBER(SEARCH("plural", {response_col}{row})), "plural", IF(ISNUMBER(SEARCH("ambiguous", {response_col}{row})), "ambiguous", "")))'''
+        data_sheet.cell(row=row, column=annotation_col).value = f'''=IF(ISNUMBER(SEARCH("singular", {response_letter}{row})), "singular", IF(ISNUMBER(SEARCH("plural", {response_letter}{row})), "plural", IF(ISNUMBER(SEARCH("ambiguous", {response_letter}{row})), "ambiguous", "")))'''
 
         llm_annotation = data_sheet.cell(row=row, column=annotation_col).value
         human_annotation = data_sheet.cell(row=row, column=human_annotation_col).value
-        data_sheet.cell(row=row, column=IAA_col).value = f"=IF({human_annotation_col}{row} = {annotation_col}{row}, \"X\", \"\")"
+        data_sheet.cell(row=row, column=IAA_col).value = f"=IF({human_annotation_letter}{row} = {annotation_letter}{row}, \"X\", \"\")"
     
     workbook.save(file) # save before doing the statistics part
 
