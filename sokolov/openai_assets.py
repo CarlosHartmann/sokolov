@@ -166,6 +166,7 @@ def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, I
 
 
 def is_obvious_case(body, span):
+    span = read_span(span)
     body = body.lower()  # Convert the text to lowercase to ensure case insensitivity
     start, end = span[0], span[1]
 
@@ -202,6 +203,7 @@ def is_obvious_case(body, span):
     # Joining the words to form phrases to match with the expressions
     last_two_words = ' '.join(preceding_text[-2:])
     last_three_words = ' '.join(preceding_text)
+    next_word = ' '.join(following_text[:1])
     next_two_words = ' '.join(following_text[:2])
     next_three_words = ' '.join(following_text)
 
@@ -215,7 +217,8 @@ def is_obvious_case(body, span):
         "either of them",
         "they are all",
         "they were all",
-        "they will all"
+        "they will all",
+        "they all"
     ]
 
     # Checking if the phrase is in the list of special expressions
@@ -224,8 +227,10 @@ def is_obvious_case(body, span):
 
     # Checking phrases that include words after the pronoun
     is_special_expression = is_special_expression or \
+                            ' '.join([pronoun, next_word]) in special_expressions or \
                             ' '.join([pronoun, next_two_words]) in special_expressions or \
                             ' '.join([pronoun, next_three_words]) in special_expressions
+                            
 
     return is_special_expression
 

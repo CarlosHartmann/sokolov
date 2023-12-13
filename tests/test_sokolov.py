@@ -49,3 +49,11 @@ def test_is_obvious_case():
     body = "Last time I check they loved one another."
     span = (18, 22)
     assert is_obvious_case(body, span) == True
+
+    body = '''I think  they have a new site up, they all should just go there and be done with it.'''
+    span = (34, 38)
+    assert is_obvious_case(body, span) == True
+
+    body = "All of them!"
+    span = (7, 11)
+    assert is_obvious_case(body, span) == True
