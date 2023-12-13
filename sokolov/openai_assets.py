@@ -11,8 +11,8 @@ import time
 
 from sokolov.excel_assets import *
 
-import openai 
-from transformers import GPT2TokenizerFast
+import openai
+openai.api_key = "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"
 
 import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -122,6 +122,35 @@ def get_llm_response(prompt, llm):
     return response
 
 
+def get_assistant_llm_response(prompt, ass_id, thread):
+    '''This is for the new assistants functionality introduced in late 2023.'''
+    message = openai.beta.threads.messages.create(
+        thread_id=thread.id,
+        role="user",
+        content=prompt
+        )
+    run = openai.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=ass_id,
+            instructions="Please read the text carefully and answer the question to the best of your knowledge based on the provided text."
+    )
+
+    time.sleep(3)
+
+    while True:
+        run = openai.beta.threads.runs.retrieve(
+                thread_id=thread.id,
+                run_id=run.id
+                )
+        if run.status == 'completed':
+            messages = openai.beta.threads.messages.list(thread_id=thread.id)
+            return messages.model_dump()['data'][0]['content'][0]['text']['value']
+            
+        # if the run status was not completed yet:
+        print(f'Waiting for response as current status is "{run.status}"')
+        time.sleep(3)
+
+
 def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, IAA_col, ambiguous_col):
     plural_col = 12
     singular_col = plural_col+3
@@ -163,6 +192,7 @@ def complete_statistics(results_sheet, they_type_col, outside_col, unknow_col, I
         last_data_row = get_last_row_with_data(results_sheet, column=iaa_letter)
         formula = f'=SUMPRODUCT({amt_letter}2:{amt_letter}{last_data_row}, {iaa_letter}2:{iaa_letter}{last_data_row}) / SUM({amt_letter}2:{amt_letter}{last_data_row})'
         results_sheet.cell(row=lastrow, column=iaa_col).value = formula
+
 
 
 def is_obvious_case(body, span):
@@ -270,6 +300,8 @@ def conduct_experiment(file: str, llm: str):
 
     lastrow = get_last_row_with_data(data_sheet)
 
+    thread = None # for potential use of assistants
+
     for row in range(2, lastrow+1):
         if row % 20 == 0:
             workbook.save(file)
@@ -281,8 +313,17 @@ def conduct_experiment(file: str, llm: str):
 
         if not data_sheet.cell(row=row, column=response_col).value: # don't wanna redo what's already been requested before
             if not is_obvious_case(body, span):
-                response = get_llm_response(prompt, llm) # send it to LLM
-                data_sheet.cell(row=row, column=response_col).value = response
+                if not 'asst_' in llm:
+                    response = get_llm_response(prompt, llm) # send it to LLM
+                else:
+                    thread = openai.beta.threads.create() if thread is None else thread
+                    response = get_assistant_llm_response(prompt, llm, thread) # send it to an Assistant GPT
+
+                try:    
+                    data_sheet.cell(row=row, column=response_col).value = response
+                except ValueError:
+                    print(f"The following response could not be pasted into excel. It was supposed to go in row {row}:")
+                    print(response)
             else:
                 data_sheet.cell(row=row, column=response_col).value = "Per rule-based 'plural they' filter it is plural."
 
