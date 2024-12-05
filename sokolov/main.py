@@ -11,6 +11,7 @@ That's right.
 import os
 import re
 import logging
+import anthropic
 
 # installed libraries
 import openpyxl
@@ -19,9 +20,10 @@ from openpyxl.styles import PatternFill, Font, NamedStyle
 
 
 # project resources
-from argparse_assets import handle_args
-from openai_assets import moderation_check, conduct_experiment, count_tokens
-from excel_assets import *
+from sokolov.argparse_assets import handle_args
+from sokolov.openai_assets import moderation_check, conduct_experiment, count_tokens
+from sokolov.anthropic_assets import clauduct_experiment
+from sokolov.excel_assets import *
 
 
 def translate_annotation(they_type: str) -> str:
@@ -164,7 +166,10 @@ def main():
     if args.task == "preparation":
         process_experiment_file(file, args)
     elif args.task == "experiment":
-        conduct_experiment(file, args.llm)
+        if 'claude' in args.llm:
+            clauduct_experiment(file, args.llm)
+        else:
+            conduct_experiment(file, args.llm)
 
 
 if __name__ == "__main__":
