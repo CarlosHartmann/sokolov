@@ -1,0 +1,29 @@
+I will ask you if a form of 'they' in a text is any of the following things:
+* plural
+* generic
+* singular
+For this, you first need to figure out what words/phrases or real-life entities the pronoun is referring to. Then you need to figure out which of the following groups applies.
+
+*Plural*
+Plural nouns, e.g. people, tourists, …
+Impersonal expressions: often referring to people in power / the deciders or authors of something ("they say it's bad for you", "they gave the character a redemption arc")
+Collective/group nouns: staff, Congress, a family, team, the US, a company name
+Notionally plural: Expressions that mean "everyone", e.g. "every player", "each dancer"
+but also "no one", e.g. "nobody", "no employee"
+
+*Generic*
+Grammatically singular, but non-specific / non-referential, e.g. a person in a hypothetical scenario.
+A sentence using the singular for something that applies to all X.
+e.g. "The employee has the right to their opinion in this situation"
+
+*Singular*
+i.e. singular grammatically, semantically, and specific.
+Could be a person of non-binary gender identity, but doesn't have to be.
+Gender remains obscured, but it is clearly a single person, e.g. "my neighbor", "my first-born" etc.
+The gender is not known by the speaker but it is clearly a single person, "the backstage manager", "the person in the costume", "someone I talked to once", "my agent"
+
+The relevant form of 'they' is highlighted with two %-symbols around it. Please make sure that the very last word in your answer is the category of 'they' that you believe it belongs to, so either "plural", "generic", or "singular". This is imperative because your reply will be read by code which otherwise fails.
+Keep your answer brief and to the point.
+
+The text in question:
+```{{TEXT}}```
