@@ -21,6 +21,8 @@ from openai import OpenAI
 LABELS = {"plural", "generic", "singular"}
 LABEL_REGEX = re.compile(r"\b(plural|generic|singular)\b", re.IGNORECASE)
 
+MORE_CONTEXT_REGEX = re.compile(r"\bmore\s+context\b[.!?)\"'\]]*\s*$", re.IGNORECASE)
+
 
 testdata_path = '/Users/Carlitos/Library/CloudStorage/GoogleDrive-carlos.hartm@gmail.com/Meine Ablage/2 - Uni-Ablage/04 sg.they/05 – Studies/2 - THEY Disambiguation/6 - study proper/LLMs'
 testdata_file = os.path.join(testdata_path, "data_w_context.xlsx")
@@ -137,7 +139,9 @@ def ask_llm_text(
     retries: int = 3,
     base_sleep: float = 1.0,
     jitter: float = 0.25,
-    max_output_tokens: Optional[int] = 256,
+    max_output_tokens: int | None = None,
+    allow_reasoning: bool = False,
+    chat_fallback_model: str = "gpt-4o-mini",
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
     extra: Optional[Dict[str, Any]] = None,
@@ -191,6 +195,25 @@ def ask_llm_text(
     return f"[api_error] {repr(last_exc)}", last_exc
 
 
+def _needs_more_context(response_text: Optional[str]) -> bool:
+    if not response_text or not isinstance(response_text, str):
+        return False
+    # True if the last meaningful words are "more context" (punctuation-insensitive)
+    return bool(MORE_CONTEXT_REGEX.search(response_text.strip()))
+
+
+def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
+    """
+    Load context text for this item. Tries exact filename match and `<ID>.txt`.
+    Returns (context_text, path). Raises FileNotFoundError if missing.
+    """
+    candidates = [os.path.join(context_dir, str(id_value)), os.path.join(context_dir, f"{id_value}.txt)")]
+    for p in candidates:
+        if p.exists() and p.is_file():
+            return p.read_text(encoding="utf-8"), p
+    raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
+
+
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -> Path:
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
@@ -235,8 +258,8 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -
             prompt_text=prompt_filled,
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
-            max_output_tokens=getattr(args, "max_output_tokens", 1024),
-            temperature=getattr(args, "temperature", None),
+            #max_output_tokens=getattr(args, "max_output_tokens", 1024),
+            #temperature=getattr(args, "temperature", None),
             seed=getattr(args, "seed", None),
             extra=getattr(args, "openai_extra", None) or {},
         )
@@ -258,6 +281,144 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -
     return output_path
 
 
+def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -> Path:
+    """
+    Zero-shot with context-on-demand:
+      1) Ask with base prompt. If the reply ends with 'more context', load the per-ID context
+         and ask again (same sentence + appended context) with a strict 'return one word' instruction.
+      2) Final response must end with plural|generic|singular; we then annotate like before.
+    Expects args:
+      - promptfile: path to the base prompt template
+      - llm: model id
+      - promptstrat: label for naming outputs
+      - context_dir: directory with files named exactly like ID values (optionally with .txt)
+      - (optional) id_column: name of the ID column (default "ID", fallback "id")
+      - (optional) limit, output_dir, retries, base_sleep, max_output_tokens, temperature, seed, chat_fallback_model
+    """
+    client = OpenAI()
+    td = td.copy()
+
+    # Respect --limit
+    if getattr(args, "limit", None):
+        td = td.head(args.limit).copy()
+
+    # Columns & dtypes (avoid FutureWarning)
+    for col, dtype in [
+        ("LLM_response", "string"),
+        ("LLM_annotation", "string"),
+        ("LLM_first_response", "string"),
+    ]:
+        if col not in td.columns:
+            td[col] = pd.Series(pd.NA, index=td.index, dtype=dtype)
+        else:
+            td[col] = td[col].astype(dtype)
+
+    # Track whether context was used
+    if "LLM_more_context" not in td.columns:
+        td["LLM_more_context"] = pd.Series(pd.NA, index=td.index, dtype="boolean")
+    else:
+        # cast to pandas nullable boolean (True/False/<NA>)
+        td["LLM_more_context"] = td["LLM_more_context"].astype("boolean")
+
+    # Prompt template & placeholder
+    prompt_template = Path(args.promptfile).read_text(encoding="utf-8")
+    placeholder = "{{TEXT}}" if "{{TEXT}}" in prompt_template else "{}"
+
+    # ID column & context directory
+    id_col = getattr(args, "id_column", None) or ("ID" if "ID" in td.columns else "id")
+    if id_col not in td.columns:
+        raise KeyError(f"ID column '{id_col}' not found in dataframe.")
+    global context_path
+
+    # Iterate rows
+    errors = []
+    for idx, text, span, item_id in td[["comment_body", "span", id_col]].itertuples(index=True, name=None):
+        # Build marked sentence
+        try:
+            start, end = _parse_span(span)
+            they_sentence = _mark_span(text, start, end, marker="%")
+        except Exception as e:
+            td.at[idx, "LLM_first_response"] = f"[span_error] {e}"
+            td.at[idx, "LLM_response"] = f"[span_error] {e}"
+            td.at[idx, "LLM_annotation"] = "unknown_they"
+            td.at[idx, "LLM_more_context"] = False
+            errors.append((idx, str(e)))
+            continue
+
+        # First turn
+        prompt1 = prompt_template.replace(placeholder, they_sentence)
+        resp1, err1 = ask_llm_text(
+            client=client,
+            model=args.llm,
+            prompt_text=prompt1,
+            retries=getattr(args, "retries", 3),
+            base_sleep=getattr(args, "base_sleep", 1.0),
+            #max_output_tokens=getattr(args, "max_output_tokens", 1024),   # give headroom
+            #temperature=getattr(args, "temperature", 0),
+            allow_reasoning=True,
+            chat_fallback_model=getattr(args, "chat_fallback_model", "gpt-4o-mini"),
+        )
+        td.at[idx, "LLM_first_response"] = resp1
+
+        # If more context requested, load and ask again
+        if _needs_more_context(resp1):
+            try:
+                ctx_text, ctx_path = _load_context(context_path, item_id)
+            except FileNotFoundError as e:
+                td.at[idx, "LLM_response"] = f"[context_missing] {e}"
+                td.at[idx, "LLM_annotation"] = "unknown_they"
+                td.at[idx, "LLM_more_context"] = True
+                errors.append((idx, str(e)))
+                continue
+
+            # Follow-up prompt: keep the same sentence, append context, and force a single-word decision
+            prompt2 = (
+                f"{prompt1}\n\n"
+                f"The previous model requested more context so here it is below. Note that now you may no longer request more context as there is none that could be provided.\n"
+                f"---\n{ctx_text}\n---\n\n"
+                f"Given this context, identify which of the three categories the 'they' in question belongs to and have your answer end with the respective word: plural, generic, or singular."
+            )
+
+            resp2, err2 = ask_llm_text(
+                client=client,
+                model=args.llm,
+                prompt_text=prompt2,
+                retries=max(1, getattr(args, "retries", 3)),  # one quick retry is enough here
+                base_sleep=getattr(args, "base_sleep", 1.0),
+                #max_output_tokens=max(512, getattr(args, "max_output_tokens", 1024)),
+                #temperature=getattr(args, "temperature", 0),
+                allow_reasoning=True,
+                chat_fallback_model=getattr(args, "chat_fallback_model", "gpt-4o-mini"),
+            )
+
+            # Use the second response as the official one
+            final_text = resp2
+            td.at[idx, "LLM_more_context"] = True
+        else:
+            final_text = resp1
+            td.at[idx, "LLM_more_context"] = False
+
+        # Guardrail: if something weird slips through (object repr, empty), make it obvious
+        if not final_text or final_text.startswith("Response("):
+            final_text = "[no_text_returned]"
+
+        td.at[idx, "LLM_response"] = final_text
+        td.at[idx, "LLM_annotation"] = _extract_label(final_text)
+
+    # Write output
+    global output_path
+    base = f"results_{args.promptstrat}_{args.llm}"
+    if getattr(args, "limit", None):
+        base += f"_top{args.limit}"
+    output_path = os.path.join(output_path, f"{base}.xlsx")
+    td.to_excel(output_path, index=False)
+
+    if errors:
+        print(f"Completed with {len(errors)} span/context errors (saved in sheet).")
+    print(f"Results saved to {output_path}")
+    return output_path
+
+
 def main():
     global td
     args = handle_args()
@@ -266,6 +427,8 @@ def main():
 
     if args.promptstrat == "context-agnostic_zero-shot":
         td = run_context_agnostic_zero_shot(td, args)
+    elif args.promptstrat == "context-ondemand_zero-shot":
+        td = run_context_ondemand_zero_shot(td, args)
     else:
         print(f"Unknown prompting strategy: {args.promptstrat}")
         exit(1)
