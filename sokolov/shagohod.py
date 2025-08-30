@@ -232,6 +232,70 @@ def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
 
 
+def _replace_first(s: str, old: str, new: str) -> str:
+    """Replace only the first occurrence of `old` in `s`."""
+    return s.replace(old, new, 1)
+
+
+def _fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url: Optional[str]) -> str:
+    """
+    Fill a template that may have:
+      - {{TEXT}} for the sentence
+      - {{URL}} / {{LINK}} / {{PERMALINK}} for the URL
+    Fallbacks:
+      - If there are two {{TEXT}} (or two "{}"), first -> sentence, second -> URL
+      - If URL placeholder missing, append a permalink line at the end
+    """
+    tpl = prompt_template
+    url = "" if url is None or (isinstance(url, float) and pd.isna(url)) else str(url)
+
+    # Case 1: explicit URL placeholder present
+    url_placeholders = ("{{URL}}", "{{LINK}}", "{{PERMALINK}}")
+    if any(ph in tpl for ph in url_placeholders):
+        for ph in url_placeholders:
+            if ph in tpl:
+                tpl = tpl.replace(ph, url)
+        # now fill sentence placeholder(s)
+        if "{{TEXT}}" in tpl:
+            tpl = tpl.replace("{{TEXT}}", sentence)
+        elif "{}" in tpl:
+            tpl = tpl.replace("{}", sentence, 1)
+        else:
+            tpl = f"{tpl}\n\nText in question:\n{sentence}"
+        return tpl
+
+    # Case 2: no explicit URL placeholder — try a two-{{TEXT}} (or two-{}) pattern
+    if "{{TEXT}}" in tpl:
+        count = tpl.count("{{TEXT}}")
+        if count >= 2:
+            tpl = _replace_first(tpl, "{{TEXT}}", sentence)
+            tpl = _replace_first(tpl, "{{TEXT}}", url)
+            return tpl
+        else:
+            tpl = tpl.replace("{{TEXT}}", sentence)
+            if url:
+                tpl += f"\n\nPermalink for context: {url}"
+            return tpl
+
+    if "{}" in tpl:
+        count = tpl.count("{}")
+        if count >= 2:
+            tpl = _replace_first(tpl, "{}", sentence)
+            tpl = _replace_first(tpl, "{}", url)
+            return tpl
+        else:
+            tpl = tpl.replace("{}", sentence, 1)
+            if url:
+                tpl += f"\n\nPermalink for context: {url}"
+            return tpl
+
+    # Case 3: no recognized placeholders at all — append both pieces
+    extra = f"\n\nText in question:\n{sentence}"
+    if url:
+        extra += f"\n\nPermalink for context: {url}"
+    return tpl + extra
+
+
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
@@ -437,6 +501,83 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
     return output_path
 
 
+def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
+    """
+    Like run_context_agnostic_zero_shot, but also injects a permalink from td['permalink']
+    into the prompt template (supports {{URL}}/{{LINK}}/{{PERMALINK}} or a second {{TEXT}}/{}).
+    """
+    client = OpenAI()
+
+    # Respect --limit for processing
+    if getattr(args, "limit", None):
+        td = td.head(args.limit).copy()
+    else:
+        td = td.copy()
+
+    # Ensure text cols are strings (prevents dtype warnings)
+    for col in ("LLM_response", "LLM_annotation"):
+        if col not in td.columns:
+            td[col] = pd.Series(pd.NA, index=td.index, dtype="string")
+        else:
+            td[col] = td[col].astype("string")
+
+    # Prompt template
+    prompt_template = Path(args.promptfile).read_text(encoding="utf-8")
+
+    errors = []
+
+    # Iterate rows (requires 'comment_body', 'span', 'permalink')
+    cols_needed = ["comment_body", "span", "permalink"]
+    missing = [c for c in cols_needed if c not in td.columns]
+    if missing:
+        raise KeyError(f"Missing required columns for permalink runner: {missing}")
+
+    for idx, text, span, permalink in td[cols_needed].itertuples(index=True, name=None):
+        try:
+            start, end = _parse_span(span)
+            they_sentence = _mark_span(text, start, end, marker="%")
+        except Exception as e:
+            td.at[idx, "LLM_response"] = f"[span_error] {e}"
+            td.at[idx, "LLM_annotation"] = "unknown_they"
+            errors.append((idx, str(e)))
+            continue
+
+        # Fill both placeholders (sentence + permalink)
+        prompt_filled = _fill_prompt_with_sentence_and_url(prompt_template, they_sentence, permalink)
+
+        # Send to model (reuses your robust helper)
+        response_text, err = ask_llm_text(
+            client=client,
+            model=args.llm,
+            prompt_text=prompt_filled,
+            retries=getattr(args, "retries", 3),
+            base_sleep=getattr(args, "base_sleep", 1.0),
+            # If you want “no limit”, pass None (or leave commented)
+            # max_output_tokens=getattr(args, "max_output_tokens", None),
+            seed=getattr(args, "seed", None),
+            extra=getattr(args, "openai_extra", None) or {},
+        )
+
+        # Guardrail against object reprs / empties
+        if not response_text or response_text.startswith("Response("):
+            response_text = "[no_text_returned]"
+
+        td.at[idx, "LLM_response"] = response_text
+        td.at[idx, "LLM_annotation"] = _extract_label(response_text)
+
+    # Output (keeps your filename pattern)
+    global output_path
+    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
+    if getattr(args, "limit", None):
+        base += f"_top{args.limit}"
+    output_filepath = os.path.join(output_path, f"{base}.xlsx")
+    td.to_excel(output_filepath, index=False)
+
+    if errors:
+        print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
+    print(f"Results saved to {output_filepath}")
+    return Path(output_filepath)
+
 def main():
     global td
     args = handle_args()
@@ -449,6 +590,9 @@ def main():
     elif args.promptstrat == "context-ondemand_zero-shot":
         for num in range(args.runs):
             run_context_ondemand_zero_shot(td, args, run=num+1)
+    elif args.promptstrat == "context-via-permalink":
+        for num in range(args.runs):
+            run_context_permalink_zero_shot(td, args, run=num+1)
     else:
         print(f"Unknown prompting strategy: {args.promptstrat}")
         exit(1)
