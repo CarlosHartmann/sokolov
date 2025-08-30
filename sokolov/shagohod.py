@@ -209,8 +209,10 @@ def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     """
     candidates = [os.path.join(context_dir, str(id_value)), os.path.join(context_dir, f"{id_value}.txt)")]
     for p in candidates:
-        if p.exists() and p.is_file():
-            return p.read_text(encoding="utf-8"), p
+        if os.path.isfile(p):
+            with open(p, 'r', encoding='utf-8') as file:
+                text = file.read()
+            return text, p
     raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
 
 
