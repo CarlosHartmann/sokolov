@@ -23,8 +23,12 @@ LABEL_REGEX = re.compile(r"\b(plural|generic|singular)\b", re.IGNORECASE)
 
 MORE_CONTEXT_REGEX = re.compile(r"\bmore\s+context\b[.!?)\"'\]]*\s*$", re.IGNORECASE)
 
+import getpass
+username = getpass.getuser()
+gdrive_user = 'GoogleDrive-carlos.hartm@gmail.com/Meine Ablage' if username == 'Carlitos' else 'GoogleDrive-smogshaik.uni@gmail.com/.shortcut-targets-by-id/1xXrtqarel363zcD11O0OzfvTnzROT6mb'
 
-testdata_path = '/Users/Carlitos/Library/CloudStorage/GoogleDrive-carlos.hartm@gmail.com/Meine Ablage/2 - Uni-Ablage/04 sg.they/05 – Studies/2 - THEY Disambiguation/6 - study proper/LLMs'
+
+testdata_path = f'/Users/{username}/Library/CloudStorage/{gdrive_user}/2 - Uni-Ablage/04 sg.they/05 – Studies/2 - THEY Disambiguation/6 - study proper/LLMs'
 testdata_file = os.path.join(testdata_path, "data_w_context.xlsx")
 context_path = os.path.join(testdata_path, "context")
 output_path = os.path.join(testdata_path, "results")
@@ -286,8 +290,8 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
     base = f"results_{args.promptstrat}_{args.llm}_run{run}"
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"
-    output_path = os.path.join(output_path, f"{base}.xlsx")
-    td.to_excel(output_path, index=False)
+    output_filepath = os.path.join(output_path, f"{base}.xlsx")
+    td.to_excel(output_filepath, index=False)
 
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
@@ -441,9 +445,10 @@ def main():
 
     if args.promptstrat == "context-agnostic_zero-shot":
         for num in range(args.runs):
-            td = run_context_agnostic_zero_shot(td, args, run=num+1)
+            run_context_agnostic_zero_shot(td, args, run=num+1)
     elif args.promptstrat == "context-ondemand_zero-shot":
-        td = run_context_ondemand_zero_shot(td, args, run=num+1)
+        for num in range(args.runs):
+            run_context_ondemand_zero_shot(td, args, run=num+1)
     else:
         print(f"Unknown prompting strategy: {args.promptstrat}")
         exit(1)
