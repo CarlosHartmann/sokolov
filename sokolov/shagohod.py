@@ -17,6 +17,7 @@ from typing import Tuple, Optional
 
 import pandas as pd
 from openai import OpenAI
+from anthropic import Anthropic 
 
 LABELS = {"plural", "generic", "singular"}
 LABEL_REGEX = re.compile(r"\b(plural|generic|singular)\b", re.IGNORECASE)
@@ -72,6 +73,15 @@ def handle_args() -> argparse.Namespace:
     elif args.runs > 15:
         print("This many runs is not wise. Limit is 15.")
         exit()
+    
+    if args.llm.startswith('claude'):
+        if not os.getenv('ANTHROPIC_API_KEY'):
+            print("ANTHROPIC_API_KEY environment variable required for Claude models")
+            exit()
+    else:
+        if not os.getenv('OPENAI_API_KEY'):
+            print("OPENAI_API_KEY environment variable required for OpenAI models")
+            exit()
     
     return args
 
@@ -149,7 +159,7 @@ def _extract_openai_text(resp: Any) -> Optional[str]:
 
 
 def ask_llm_text(
-    client: OpenAI,
+    client,  # Now accepts either OpenAI or Anthropic client
     model: str,
     prompt_text: str,
     retries: int = 3,
@@ -163,51 +173,65 @@ def ask_llm_text(
     extra: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[Exception]]:
     """
-    Send `prompt_text` to OpenAI with robust extraction and retries.
-    Returns (response_text, error). If error is not None, response_text is a formatted error string.
-    Compatible with both `client.responses.create` and the older `client.chat.completions.create`.
+    Send prompt_text to either OpenAI or Anthropic with robust extraction and retries.
     """
     extra = extra or {}
     last_exc: Optional[Exception] = None
+    is_claude = model.startswith('claude')
 
     for attempt in range(retries):
         try:
-            if hasattr(client, "responses"):  # modern SDK
-                kwargs = dict(model=model, input=prompt_text, **extra)
-                if max_output_tokens is not None:
-                    kwargs["max_output_tokens"] = max_output_tokens
+            if is_claude:
+                # Anthropic API call
+                kwargs = {
+                    "model": model,
+                    "max_tokens": max_output_tokens or 1024,
+                    "messages": [{"role": "user", "content": prompt_text}],
+                    **extra
+                }
                 if temperature is not None:
                     kwargs["temperature"] = temperature
-                if seed is not None:
-                    kwargs["seed"] = seed
-                resp = client.responses.create(**kwargs)
-            else:  # fallback to Chat Completions (older SDK)
-                kwargs = dict(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt_text}],
-                    **extra,
-                )
-                # chat.completions uses `max_tokens` (not max_output_tokens)
-                if max_output_tokens is not None:
-                    kwargs["max_tokens"] = max_output_tokens
-                if temperature is not None:
-                    kwargs["temperature"] = temperature
-                if seed is not None:
-                    kwargs["seed"] = seed
-                resp = client.chat.completions.create(**kwargs)
+                
+                resp = client.messages.create(**kwargs)
+                # Extract text from Anthropic response
+                text = resp.content[0].text if resp.content else None
+                
+            else:
+                # OpenAI API call (your existing logic)
+                if hasattr(client, "responses"):  # modern SDK
+                    kwargs = dict(model=model, input=prompt_text, **extra)
+                    if max_output_tokens is not None:
+                        kwargs["max_output_tokens"] = max_output_tokens
+                    if temperature is not None:
+                        kwargs["temperature"] = temperature
+                    if seed is not None:
+                        kwargs["seed"] = seed
+                    resp = client.responses.create(**kwargs)
+                else:  # fallback to Chat Completions
+                    kwargs = dict(
+                        model=model,
+                        messages=[{"role": "user", "content": prompt_text}],
+                        **extra,
+                    )
+                    if max_output_tokens is not None:
+                        kwargs["max_tokens"] = max_output_tokens
+                    if temperature is not None:
+                        kwargs["temperature"] = temperature
+                    if seed is not None:
+                        kwargs["seed"] = seed
+                    resp = client.chat.completions.create(**kwargs)
 
-            text = _extract_openai_text(resp)
+                text = _extract_openai_text(resp)
+            
             if text is None:
                 text = str(resp)
             return text, None
 
         except Exception as e:
             last_exc = e
-            # exponential backoff with jitter
             sleep_s = (base_sleep * (2 ** attempt)) * (1.0 + random.uniform(-jitter, jitter))
             time.sleep(max(0.0, sleep_s))
 
-    # failed after retries
     return f"[api_error] {repr(last_exc)}", last_exc
 
 
@@ -296,11 +320,19 @@ def _fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url:
     return tpl + extra
 
 
+def get_client(model_name: str):
+    """Return appropriate client based on model name"""
+    if model_name.startswith('claude'):
+        return Anthropic()  # Uses ANTHROPIC_API_KEY env var
+    else:
+        return OpenAI()  # Uses OPENAI_API_KEY env var
+
+
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
     """
-    client = OpenAI()
+    client = get_client(args.llm)
 
     # Respect --limit for processing
     if getattr(args, "limit", None):
@@ -377,7 +409,7 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
       - (optional) id_column: name of the ID column (default "ID", fallback "id")
       - (optional) limit, output_dir, retries, base_sleep, max_output_tokens, temperature, seed, chat_fallback_model
     """
-    client = OpenAI()
+    client = get_client(args.llm)
     td = td.copy()
 
     # Respect --limit
@@ -506,7 +538,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
     Like run_context_agnostic_zero_shot, but also injects a permalink from td['permalink']
     into the prompt template (supports {{URL}}/{{LINK}}/{{PERMALINK}} or a second {{TEXT}}/{}).
     """
-    client = OpenAI()
+    client = get_client(args.llm)
 
     # Respect --limit for processing
     if getattr(args, "limit", None):
