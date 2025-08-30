@@ -43,6 +43,8 @@ def define_parser() -> argparse.ArgumentParser:
                         help="The prompting strategy to be used. This should coincide with a function here defined that can work with a given promptfile and LLM.")
     parser.add_argument('--llm', '-LLM', type=str, required=False,
                         help="The LLM to be used for the experiment.")
+    parser.add_argument('--runs', "-R", type=int, required=True,
+                        help="Number of runs to be performed")
     parser.add_argument('--moderation', '-M', action="store_true",
                         help="Send all comments to openAI moderation to check if they are acceptable to be used on GPT.")
     return parser
@@ -55,6 +57,16 @@ def handle_args() -> argparse.Namespace:
 
     if not args.llm:
         print("LLM to be used not set.")
+        exit()
+    
+    if not args.runs:
+        print("Specify number of runs")
+        exit()
+    elif args.runs == 0:
+        print("Ha ha. Very funny.")
+        exit()
+    elif args.runs > 15:
+        print("This many runs is not wise. Limit is 15.")
         exit()
     
     return args
@@ -216,7 +228,7 @@ def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
 
 
-def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -> Path:
+def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
     """
@@ -271,7 +283,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -
 
     # Output
     global output_path
-    base = f"results_{args.promptstrat}_{args.llm}"
+    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"
     output_path = os.path.join(output_path, f"{base}.xlsx")
@@ -283,7 +295,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -
     return output_path
 
 
-def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -> Path:
+def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     """
     Zero-shot with context-on-demand:
       1) Ask with base prompt. If the reply ends with 'more context', load the per-ID context
@@ -409,7 +421,7 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace) -
 
     # Write output
     global output_path
-    base = f"results_{args.promptstrat}_{args.llm}"
+    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"
     output_path = os.path.join(output_path, f"{base}.xlsx")
@@ -428,9 +440,10 @@ def main():
         td = td.head(args.limit)
 
     if args.promptstrat == "context-agnostic_zero-shot":
-        td = run_context_agnostic_zero_shot(td, args)
+        for num in range(args.runs):
+            td = run_context_agnostic_zero_shot(td, args, run=num+1)
     elif args.promptstrat == "context-ondemand_zero-shot":
-        td = run_context_ondemand_zero_shot(td, args)
+        td = run_context_ondemand_zero_shot(td, args, run=num+1)
     else:
         print(f"Unknown prompting strategy: {args.promptstrat}")
         exit(1)
