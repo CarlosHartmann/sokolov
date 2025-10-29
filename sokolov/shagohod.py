@@ -61,14 +61,8 @@ def handle_args() -> argparse.Namespace:
     args.context_path = os.path.join(args.datapath, "context")
     args.output_path = os.path.join(args.datapath, "results")
 
-    if not args.llm:
-        print("LLM to be used not set.")
-        exit()
-    
-    if not args.runs:
-        print("Specify number of runs")
-        exit()
-    elif args.runs == 0:
+
+    if args.runs == 0:
         print("Ha ha. Very funny.")
         exit()
     elif args.runs > 15:
@@ -126,14 +120,20 @@ def mark_span(text: str, start: int, end: int, marker: str = "%") -> str:
     return text[:start] + marker + text[start:end] + marker + text[end:]
 
 
-def _extract_label(response_text: Optional[str]) -> str:
+def extract_label(response_text: Optional[str]) -> str:
+    """
+    Returns the last instance of "plural", "generic", or "singular" in a string.
+    This is used to identify which category the LLM ultimately chose,
+    as it was instructed to end its output with any of the three words.
+    The identified label is suffixed with "_they" to keep it consistent with established labelling in my annotation interface, e.g. "singular_they".
+    """
     if not response_text or not isinstance(response_text, str):
-        return "unknown_they"
+        return ""
     matches = LABEL_REGEX.findall(response_text)
     return (matches[-1].lower() + "_they") if matches else "unknown_they"
 
 
-def _extract_openai_text(resp: Any) -> Optional[str]:
+def extract_openai_text(resp: Any) -> Optional[str]:
     """
     Works with Responses API objects and falls back to raw repr if needed.
     """
@@ -170,30 +170,27 @@ def ask_llm_text(
     prompt_text: str,
     retries: int = 3,
     base_sleep: float = 1.0,
-    jitter: float = 0.25,
     max_output_tokens: int | None = None,
     allow_reasoning: bool = False,
     chat_fallback_model: str = "gpt-4o-mini",
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
-    extra: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[Exception]]:
     """
     Send prompt_text to either OpenAI or Anthropic with robust extraction and retries.
     """
-    extra = extra or {}
     last_exc: Optional[Exception] = None
     is_claude = model.startswith('claude')
+    is_chatgpt = model.startswith('chatgpt')
 
-    for attempt in range(retries):
-        try:
+    for attempt in range(retries): # tries 3 times by default
+        try: #
             if is_claude:
                 # Anthropic API call
                 kwargs = {
                     "model": model,
                     "max_tokens": max_output_tokens or 1024,
-                    "messages": [{"role": "user", "content": prompt_text}],
-                    **extra
+                    "messages": [{"role": "user", "content": prompt_text}]
                 }
                 if temperature is not None:
                     kwargs["temperature"] = temperature
@@ -202,10 +199,10 @@ def ask_llm_text(
                 # Extract text from Anthropic response
                 text = resp.content[0].text if resp.content else None
                 
-            else:
+            elif is_chatgpt:
                 # OpenAI API call (your existing logic)
                 if hasattr(client, "responses"):  # modern SDK
-                    kwargs = dict(model=model, input=prompt_text, **extra)
+                    kwargs = dict(model=model, input=prompt_text)
                     if max_output_tokens is not None:
                         kwargs["max_output_tokens"] = max_output_tokens
                     if temperature is not None:
@@ -216,8 +213,7 @@ def ask_llm_text(
                 else:  # fallback to Chat Completions
                     kwargs = dict(
                         model=model,
-                        messages=[{"role": "user", "content": prompt_text}],
-                        **extra,
+                        messages=[{"role": "user", "content": prompt_text}]
                     )
                     if max_output_tokens is not None:
                         kwargs["max_tokens"] = max_output_tokens
@@ -227,7 +223,7 @@ def ask_llm_text(
                         kwargs["seed"] = seed
                     resp = client.chat.completions.create(**kwargs)
 
-                text = _extract_openai_text(resp)
+                text = extract_openai_text(resp)
             
             if text is None:
                 text = str(resp)
@@ -235,20 +231,23 @@ def ask_llm_text(
 
         except Exception as e:
             last_exc = e
-            sleep_s = (base_sleep * (2 ** attempt)) * (1.0 + random.uniform(-jitter, jitter))
+            sleep_s = (base_sleep * (2 ** attempt)) # increases wait time per attempt
             time.sleep(max(0.0, sleep_s))
 
     return f"[api_error] {repr(last_exc)}", last_exc
 
 
-def _needs_more_context(response_text: Optional[str]) -> bool:
+def needs_more_context(response_text: Optional[str]) -> bool:
+    """
+    Necessary for the prompting technique that has the LLM ask for more context.
+    """
     if not response_text or not isinstance(response_text, str):
         return False
     # True if the last meaningful words are "more context" (punctuation-insensitive)
     return bool(MORE_CONTEXT_REGEX.search(response_text.strip()))
 
 
-def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
+def load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     """
     Load context text for this item. Tries exact filename match and `<ID>.txt`.
     Returns (context_text, path). Raises FileNotFoundError if missing.
@@ -262,12 +261,7 @@ def _load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
 
 
-def _replace_first(s: str, old: str, new: str) -> str:
-    """Replace only the first occurrence of `old` in `s`."""
-    return s.replace(old, new, 1)
-
-
-def _fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url: Optional[str]) -> str:
+def fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url: Optional[str]) -> str:
     """
     Fill a template that may have:
       - {{TEXT}} for the sentence
@@ -279,7 +273,7 @@ def _fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url:
     tpl = prompt_template
     url = "" if url is None or (isinstance(url, float) and pd.isna(url)) else str(url)
 
-    # Case 1: explicit URL placeholder present
+    # Requires explicit URL placeholder to be present
     url_placeholders = ("{{URL}}", "{{LINK}}", "{{PERMALINK}}")
     if any(ph in tpl for ph in url_placeholders):
         for ph in url_placeholders:
@@ -293,37 +287,6 @@ def _fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url:
         else:
             tpl = f"{tpl}\n\nText in question:\n{sentence}"
         return tpl
-
-    # Case 2: no explicit URL placeholder — try a two-{{TEXT}} (or two-{}) pattern
-    if "{{TEXT}}" in tpl:
-        count = tpl.count("{{TEXT}}")
-        if count >= 2:
-            tpl = _replace_first(tpl, "{{TEXT}}", sentence)
-            tpl = _replace_first(tpl, "{{TEXT}}", url)
-            return tpl
-        else:
-            tpl = tpl.replace("{{TEXT}}", sentence)
-            if url:
-                tpl += f"\n\nPermalink for context: {url}"
-            return tpl
-
-    if "{}" in tpl:
-        count = tpl.count("{}")
-        if count >= 2:
-            tpl = _replace_first(tpl, "{}", sentence)
-            tpl = _replace_first(tpl, "{}", url)
-            return tpl
-        else:
-            tpl = tpl.replace("{}", sentence, 1)
-            if url:
-                tpl += f"\n\nPermalink for context: {url}"
-            return tpl
-
-    # Case 3: no recognized placeholders at all — append both pieces
-    extra = f"\n\nText in question:\n{sentence}"
-    if url:
-        extra += f"\n\nPermalink for context: {url}"
-    return tpl + extra
 
 
 def get_client(model_name: str):
@@ -380,12 +343,11 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
             base_sleep=getattr(args, "base_sleep", 1.0),
             #max_output_tokens=getattr(args, "max_output_tokens", 1024),
             #temperature=getattr(args, "temperature", None),
-            seed=getattr(args, "seed", None),
-            extra=getattr(args, "openai_extra", None) or {},
+            seed=getattr(args, "seed", None)
         )
 
         td.at[idx, "LLM_response"] = response_text
-        td.at[idx, "LLM_annotation"] = _extract_label(response_text)
+        td.at[idx, "LLM_annotation"] = extract_label(response_text)
 
     # Output
     base = f"results_{args.promptstrat}_{args.llm}_run{run}"
@@ -478,9 +440,9 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
         td.at[idx, "LLM_first_response"] = resp1
 
         # If more context requested, load and ask again
-        if _needs_more_context(resp1):
+        if needs_more_context(resp1):
             try:
-                ctx_text, ctx_path = _load_context(args.context_path, item_id)
+                ctx_text, ctx_path = load_context(args.context_path, item_id)
             except FileNotFoundError as e:
                 td.at[idx, "LLM_response"] = f"[context_missing] {e}"
                 td.at[idx, "LLM_annotation"] = "unknown_they"
@@ -520,7 +482,7 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
             final_text = "[no_text_returned]"
 
         td.at[idx, "LLM_response"] = final_text
-        td.at[idx, "LLM_annotation"] = _extract_label(final_text)
+        td.at[idx, "LLM_annotation"] = extract_label(final_text)
 
     # Write output
     base = f"results_{args.promptstrat}_{args.llm}_run{run}"
@@ -576,7 +538,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             continue
 
         # Fill both placeholders (sentence + permalink)
-        prompt_filled = _fill_prompt_with_sentence_and_url(prompt_template, they_sentence, permalink)
+        prompt_filled = fill_prompt_with_sentence_and_url(prompt_template, they_sentence, permalink)
 
         # Send to model (reuses your robust helper)
         response_text, err = ask_llm_text(
@@ -588,7 +550,6 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             # If you want “no limit”, pass None (or leave commented)
             # max_output_tokens=getattr(args, "max_output_tokens", None),
             seed=getattr(args, "seed", None),
-            extra=getattr(args, "openai_extra", None) or {},
         )
 
         # Guardrail against object reprs / empties
@@ -596,7 +557,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             response_text = "[no_text_returned]"
 
         td.at[idx, "LLM_response"] = response_text
-        td.at[idx, "LLM_annotation"] = _extract_label(response_text)
+        td.at[idx, "LLM_annotation"] = extract_label(response_text)
 
     # Output (keeps your filename pattern)
     base = f"results_{args.promptstrat}_{args.llm}_run{run}"
