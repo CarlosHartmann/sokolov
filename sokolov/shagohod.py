@@ -582,6 +582,11 @@ def main():
     if args.limit is not None:
         td = td.head(args.limit)
 
+    # the functions for each prompting strategy are very similar.
+    # If one is understood, the others are just small-ish variations.
+    # They could be simplified as one experimenting function where their small differences (i.e. choice of promptfile, optional decisions, addition of the permalink)
+    # are optional callables.
+
     if args.promptstrat == "context-agnostic_zero-shot":
         for num in range(args.runs):
             run_context_agnostic_zero_shot(td, args, run=num+1)
