@@ -293,8 +293,11 @@ def get_client(model_name: str):
     """Return appropriate client based on model name"""
     if model_name.startswith('claude'):
         return Anthropic()  # Uses ANTHROPIC_API_KEY env var
-    else:
+    elif model_name.startswith('chatgpt'):
         return OpenAI()  # Uses OPENAI_API_KEY env var
+    else:
+        print(f"Unknwon model name: {model_name}")
+        exit()
 
 
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
