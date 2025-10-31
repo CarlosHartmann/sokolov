@@ -2,13 +2,15 @@
 August 2025: About to fly to ISLE in Santiago to present the first serious run of human vs machine at this task.
 If at least somewhat successful, this will be the Shagohod; and Metal Gear will rise thereafter.
 Cleaned in October 2025 to ensure all code is understood and (hopefully) commented properly for posterity.
+
+For this to work, the API keys must have been added to your $PATH (see online manuals).
+I.e. the API keys must be accessible via, e.g., `os.getenv('ANTHROPIC_API_KEY')`
 '''
 
 import re
 import os
 import ast
 import time
-import random
 import argparse
 import pandas as pd
 
