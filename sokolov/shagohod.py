@@ -19,6 +19,8 @@ from pathlib import Path
 # to check provided arguments in the execution command
 from sokolov.argparse_assets import dir_path
 
+from openrouter_assets import openrouter_request
+
 from typing import Optional, Tuple, Dict, Any
 
 # AI company APIs
