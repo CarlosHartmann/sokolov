@@ -326,6 +326,18 @@ def get_client(model_name: str):
         exit()
 
 
+def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
+    """
+    Write the dataframe to CSV at the specified path.
+    """
+    base = f"results_{args.promptstrat}_{args.llm.replace("/", "-")}_run{run}"
+    if getattr(args, "limit", None):
+        base += f"_top{args.limit}"
+    output_p = os.path.join(args.outputdir, f"{base}.csv")
+    td.to_csv(output_p, index=False)
+    print(f"Results saved to {output_p}")
+
+
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
@@ -379,15 +391,9 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
         td.at[idx, "LLM_annotation"] = extract_label(response_text)
 
     # Output
-    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
-    if getattr(args, "limit", None):
-        base += f"_top{args.limit}"
-    output_filepath = os.path.join(args.output_path, f"{base}.xlsx")
-    td.to_excel(output_filepath, index=False)
-
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
-    print(f"Results saved to {output_filepath}")
+    write_output(td, args, run)
 
 
 def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
@@ -512,17 +518,11 @@ def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
 
         td.at[idx, "LLM_response"] = final_text
         td.at[idx, "LLM_annotation"] = extract_label(final_text)
-
-    # Write output
-    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
-    if getattr(args, "limit", None):
-        base += f"_top{args.limit}"
-    output_p = os.path.join(args.output_path, f"{base}.xlsx")
-    td.to_excel(output_p, index=False)
-
+    
+    # Output
     if errors:
         print(f"Completed with {len(errors)} span/context errors (saved in sheet).")
-    print(f"Results saved to {output_p}")
+    write_output(td, args, run)
 
 
 def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
@@ -589,17 +589,10 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
         td.at[idx, "LLM_response"] = response_text
         td.at[idx, "LLM_annotation"] = extract_label(response_text)
 
-    # Output (keeps your filename pattern)
-    basepath = args.output_path if hasattr(args, "output_path") else "."
-    base = f"results_{args.promptstrat}_{args.llm}_run{run}"
-    if getattr(args, "limit", None):
-        base += f"_top{args.limit}"
-    output_filepath = os.path.join(args.output_path, f"{base}.xlsx")
-    td.to_excel(output_filepath, index=False)
-
+    # Output
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
-    print(f"Results saved to {output_filepath}")
+    write_output(td, args, run)
 
 def main():
     args = handle_args()
