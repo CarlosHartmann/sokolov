@@ -3,6 +3,7 @@ anthropic_assets: All things related to the Anthropic API.
 NOTE: Moderation check not yet implemented for anthropic!
 '''
 
+import os
 import spacy
 nlp = spacy.load("en_core_web_sm")
 
@@ -14,7 +15,7 @@ from sokolov.excel_assets import *
 
 import anthropic
 client = anthropic.Anthropic(
-    api_key="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",
+    api_key=os.environ.get('ANTHROPIC_API_KEY')
 )
 
 

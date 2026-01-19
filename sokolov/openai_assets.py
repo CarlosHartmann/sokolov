@@ -2,6 +2,7 @@
 openai_assets: All things related to the openAI API. 
 '''
 
+import os
 import spacy
 nlp = spacy.load("en_core_web_sm")
 
@@ -12,7 +13,7 @@ import time
 from sokolov.excel_assets import *
 
 import openai
-openai.api_key = "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"
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 import tiktoken
 encoding = tiktoken.get_encoding("cl100k_base")

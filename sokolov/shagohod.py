@@ -172,6 +172,7 @@ def ask_llm_text(
     client,  # Accepts either OpenAI or Anthropic client
     model: str,
     prompt_text: str,
+    system_message: str, # filepath
     retries: int = 3,
     base_sleep: float = 1.0,
     max_output_tokens: int | None = None,
@@ -181,11 +182,12 @@ def ask_llm_text(
     seed: Optional[int] = None,
 ) -> Tuple[str, Optional[Exception]]:
     """
-    Send prompt_text to either OpenAI or Anthropic with robust extraction and retries.
+    Send prompt_text to OpenAI, Anthropic, or OpenRouter with robust extraction and retries.
     """
     last_exc: Optional[Exception] = None
     is_claude = model.startswith('claude')
     is_chatgpt = model.startswith('chatgpt')
+    is_deepseek = model.startswith('deepseek')
 
     for attempt in range(retries): # tries 3 times by default
         try: #
@@ -229,6 +231,15 @@ def ask_llm_text(
 
                 text = extract_openai_text(resp)
             
+            elif is_deepseek:
+                # OpenRouter API call
+                text = openrouter_request(
+                    prompt=prompt_text,
+                    system_message=system_message,
+                    model=model
+                )
+                resp = text  # for consistency in return value
+
             if text is None:
                 text = str(resp)
             return text, None
@@ -552,6 +563,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             client=client,
             model=args.llm,
             prompt_text=prompt_filled,
+            system_message=args.system_message if hasattr(args, "system_message") else "",
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
             # If you want “no limit”, pass None (or leave commented)

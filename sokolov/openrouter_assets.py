@@ -6,11 +6,17 @@ import requests
 import json
 import os
 
+# load API key from environment variable
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+
 def openrouter_request(prompt: str, system_message: str, model: str) -> str:
+
+    if system_message == "":
+        raise ValueError("System message cannot be empty for OpenRouter requests.")
 
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {os.environ.get('OPENROUTER_API_KEY')}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
     payload = {
