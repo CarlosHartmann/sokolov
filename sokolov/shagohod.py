@@ -5,6 +5,9 @@ Cleaned in October 2025 to ensure all code is understood and (hopefully) comment
 
 For this to work, the API keys must have been added to your $PATH (see online manuals).
 I.e. the API keys must be accessible via, e.g., `os.getenv('ANTHROPIC_API_KEY')`
+
+Example call:
+poetry run python sokolov/shagohod.py --promptfile prompts/zero_shot.txt --promptstrat context-agnostic_zero-shot --llm chatgpt-4o-mini --runs 3 --datapath /path/to/working/dir --limit 1000
 '''
 
 import re
@@ -35,8 +38,13 @@ MORE_CONTEXT_REGEX = re.compile(r"\bmore\s+context\b[.!?)\"'\]]*\s*$", re.IGNORE
 def define_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('--outputdir', '-OD', type=dir_path, required=False,
+                        help="The directory where to store the output files. If not set, the output files will be stored in the same directory as the input file.")
+
     parser.add_argument('--promptfile', '-PF', required=True,
                         help="The file containing the prompt design to be used.")
+    parser.add_argument('--system_message', '-SM', required=False,
+                        help="The file containing the system message to be used with the LLM.")
     parser.add_argument('--promptstrat', '-PS', required=True,
                         help="The prompting strategy to be used. This should coincide with a function here defined that can work with a given promptfile and LLM.")
     parser.add_argument('--llm', '-LLM', type=str, required=True,
@@ -44,8 +52,9 @@ def define_parser() -> argparse.ArgumentParser:
     parser.add_argument('--runs', "-R", type=int, required=True,
                         help="Number of runs to be performed")
     parser.add_argument('--datapath', '-DP', type=dir_path, required=True,
-                        help="Supply a working path to a directlry that contains the folders 'context', 'results', and the data themself named 'data_w_context.xlsw'.")
+                        help="Supply a working path to a directly that contains the folders 'context', 'results', and the data themself named 'data_w_context.xlsx'.")
     
+
     parser.add_argument('--limit', '-L', type=int, required=False, default=None,
                         help="Limit the number of rows to be processed.")
     
@@ -63,7 +72,6 @@ def handle_args() -> argparse.Namespace:
 
     args.testdata_file = os.path.join(args.datapath, "data_w_context.xlsx")
     args.context_path = os.path.join(args.datapath, "context")
-    args.output_path = os.path.join(args.datapath, "results")
 
 
     if args.runs == 0:
@@ -246,6 +254,7 @@ def ask_llm_text(
 
         except Exception as e:
             last_exc = e
+            print(f"Attempt {attempt + 1} failed with error: {e}")
             sleep_s = (base_sleep * (2 ** attempt)) # increases wait time per attempt
             time.sleep(max(0.0, sleep_s))
 
@@ -310,8 +319,10 @@ def get_client(model_name: str):
         return Anthropic()  # Uses ANTHROPIC_API_KEY env var
     elif model_name.startswith('chatgpt'):
         return OpenAI()  # Uses OPENAI_API_KEY env var
+    elif model_name.startswith('deepseek'):
+        return None  # OpenRouter does not need a client object
     else:
-        print(f"Unknwon model name: {model_name}")
+        print(f"Unknown model name: {model_name}")
         exit()
 
 
@@ -579,6 +590,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
         td.at[idx, "LLM_annotation"] = extract_label(response_text)
 
     # Output (keeps your filename pattern)
+    basepath = args.output_path if hasattr(args, "output_path") else "."
     base = f"results_{args.promptstrat}_{args.llm}_run{run}"
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"

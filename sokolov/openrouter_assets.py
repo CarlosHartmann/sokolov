@@ -36,4 +36,8 @@ def openrouter_request(prompt: str, system_message: str, model: str) -> str:
 
     response = requests.post(url, headers=headers, json=payload)
     response_json = response.json()
+    
+    if response.status_code != 200:
+        raise Exception(f"OpenRouter API request failed with status code {response.status_code}: {response_json}")
+    
     return response_json['choices'][0]['message']['content']
