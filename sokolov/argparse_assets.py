@@ -61,8 +61,6 @@ def define_parser() -> argparse.ArgumentParser:
     # directories
     parser.add_argument('--inputfile', '-IF', type=excel_file, required=True,
                         help="The file containing the data to be handled.")
-    parser.add_argument('--outputdir', '-OD', type=dir_path, required=False,
-                        help="The directory where to store the output files. If not set, the output files will be stored in the same directory as the input file.")
     
     # tasks
     parser.add_argument('--task', '-T', type=task_type, required=True,
@@ -81,8 +79,7 @@ def define_parser() -> argparse.ArgumentParser:
                         help="The LLM to be used for the experiment.")
     parser.add_argument('--moderation', '-M', action="store_true",
                         help="Send all comments to openAI moderation to check if they are acceptable to be used on GPT.")
-    parser.add_argument('--system_message', '-SM', type=file_path, required=False,
-                        help="The file containing the system message to be used with the LLM.")
+
 
     return parser
 
