@@ -24,7 +24,7 @@ from sokolov.argparse_assets import dir_path
 
 from openrouter_assets import openrouter_request
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Any
 
 # AI company APIs
 from openai import OpenAI
@@ -184,8 +184,8 @@ def ask_llm_text(
     retries: int = 3,
     base_sleep: float = 1.0,
     max_output_tokens: int | None = None,
-    allow_reasoning: bool = False,
-    chat_fallback_model: str = "gpt-4o-mini",
+    _allow_reasoning: bool = False,
+    _chat_fallback_model: str = "gpt-4o-mini",
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
 ) -> Tuple[str, Optional[Exception]]:
@@ -198,6 +198,7 @@ def ask_llm_text(
     is_deepseek = model.startswith('deepseek')
 
     for attempt in range(retries): # tries 3 times by default
+        text = None
         try: #
             if is_claude:
                 # Anthropic API call
@@ -238,9 +239,8 @@ def ask_llm_text(
                     resp = client.chat.completions.create(**kwargs)
 
                 text = extract_openai_text(resp)
-            
-            elif is_deepseek:
-                # OpenRouter API call
+            elif is_deepseek or True:
+                # OpenRouter API call for DeepSeek or any other model name
                 text = openrouter_request(
                     prompt=prompt_text,
                     system_message=system_message,
@@ -319,11 +319,8 @@ def get_client(model_name: str):
         return Anthropic()  # Uses ANTHROPIC_API_KEY env var
     elif model_name.startswith('chatgpt'):
         return OpenAI()  # Uses OPENAI_API_KEY env var
-    elif model_name.startswith('deepseek'):
-        return None  # OpenRouter does not need a client object
     else:
-        print(f"Unknown model name: {model_name}")
-        exit()
+        return None  # OpenRouter does not need a client object
 
 
 def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
@@ -375,7 +372,6 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
 
         prompt_filled = prompt_template.replace(placeholder, they_sentence)
 
-        # Call the reusable helper (handles Responses vs Chat, retries, etc.)
         response_text, err = ask_llm_text(
             client=client,
             model=args.llm,
@@ -393,135 +389,6 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
     # Output
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
-    write_output(td, args, run)
-
-
-def run_context_ondemand_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
-    """
-    Zero-shot with context-on-demand:
-      1) Ask with base prompt. If the reply ends with 'more context', load the per-ID context
-         and ask again (same sentence + appended context) with a strict 'return one word' instruction.
-      2) Final response must end with plural|generic|singular; we then annotate like before.
-    Expects args:
-      - promptfile: path to the base prompt template
-      - llm: model id
-      - promptstrat: label for naming outputs
-      - context_dir: directory with files named exactly like ID values (optionally with .txt)
-      - (optional) id_column: name of the ID column (default "ID", fallback "id")
-      - (optional) limit, output_dir, retries, base_sleep, max_output_tokens, temperature, seed, chat_fallback_model
-    """
-    client = get_client(args.llm)
-    td = td.copy()
-
-    # Respect --limit
-    if getattr(args, "limit", None):
-        td = td.head(args.limit).copy()
-
-    # Columns & dtypes (avoid FutureWarning)
-    for col, dtype in [
-        ("LLM_response", "string"),
-        ("LLM_annotation", "string"),
-        ("LLM_first_response", "string"),
-    ]:
-        if col not in td.columns:
-            td[col] = pd.Series(pd.NA, index=td.index, dtype=dtype)
-        else:
-            td[col] = td[col].astype(dtype)
-
-    # Track whether context was used
-    if "LLM_more_context" not in td.columns:
-        td["LLM_more_context"] = pd.Series(pd.NA, index=td.index, dtype="boolean")
-    else:
-        # cast to pandas nullable boolean (True/False/<NA>)
-        td["LLM_more_context"] = td["LLM_more_context"].astype("boolean")
-
-    # Prompt template & placeholder
-    prompt_template = Path(args.promptfile).read_text(encoding="utf-8")
-    placeholder = "{{TEXT}}" if "{{TEXT}}" in prompt_template else "{}"
-
-    # ID column & context directory
-    id_col = getattr(args, "id_column", None) or ("ID" if "ID" in td.columns else "id")
-    if id_col not in td.columns:
-        raise KeyError(f"ID column '{id_col}' not found in dataframe.")
-
-    # Iterate rows
-    errors = []
-    for idx, text, span, item_id in td[["comment_body", "span", id_col]].itertuples(index=True, name=None):
-        # Build marked sentence
-        try:
-            start, end = parse_span(span)
-            they_sentence = mark_span(text, start, end, marker="%")
-        except Exception as e:
-            td.at[idx, "LLM_first_response"] = f"[span_error] {e}"
-            td.at[idx, "LLM_response"] = f"[span_error] {e}"
-            td.at[idx, "LLM_annotation"] = "unknown_they"
-            td.at[idx, "LLM_more_context"] = False
-            errors.append((idx, str(e)))
-            continue
-
-        # First turn
-        prompt1 = prompt_template.replace(placeholder, they_sentence)
-        resp1, err1 = ask_llm_text(
-            client=client,
-            model=args.llm,
-            prompt_text=prompt1,
-            retries=getattr(args, "retries", 3),
-            base_sleep=getattr(args, "base_sleep", 1.0),
-            #max_output_tokens=getattr(args, "max_output_tokens", 1024),   # give headroom
-            #temperature=getattr(args, "temperature", 0),
-            allow_reasoning=True,
-            chat_fallback_model=getattr(args, "chat_fallback_model", "gpt-4o-mini"),
-        )
-        td.at[idx, "LLM_first_response"] = resp1
-
-        # If more context requested, load and ask again
-        if needs_more_context(resp1):
-            try:
-                ctx_text, ctx_path = load_context(args.context_path, item_id)
-            except FileNotFoundError as e:
-                td.at[idx, "LLM_response"] = f"[context_missing] {e}"
-                td.at[idx, "LLM_annotation"] = "unknown_they"
-                td.at[idx, "LLM_more_context"] = True
-                errors.append((idx, str(e)))
-                continue
-
-            # Follow-up prompt: keep the same sentence, append context, and force a single-word decision
-            prompt2 = (
-                f"{prompt1}\n\n"
-                f"The previous model requested more context so here it is below. Note that now you may no longer request more context as there is none that could be provided.\n"
-                f"---\n{ctx_text}\n---\n\n"
-                f"Given this context, identify which of the three categories the 'they' in question belongs to and have your answer end with the respective word: plural, generic, or singular."
-            )
-
-            resp2, err2 = ask_llm_text(
-                client=client,
-                model=args.llm,
-                prompt_text=prompt2,
-                retries=max(1, getattr(args, "retries", 3)),  # one quick retry is enough here
-                base_sleep=getattr(args, "base_sleep", 1.0),
-                #max_output_tokens=max(512, getattr(args, "max_output_tokens", 1024)),
-                #temperature=getattr(args, "temperature", 0),
-                allow_reasoning=True,
-                chat_fallback_model=getattr(args, "chat_fallback_model", "gpt-4o-mini"),
-            )
-
-            # Use the second response as the official one
-            final_text = resp2
-            td.at[idx, "LLM_more_context"] = True
-        else:
-            final_text = resp1
-            td.at[idx, "LLM_more_context"] = False
-
-        # Guardrail: if something weird slips through (object repr, empty), make it obvious
-        if not final_text or final_text.startswith("Response("):
-            final_text = "[no_text_returned]"
-
-        td.at[idx, "LLM_response"] = final_text
-        td.at[idx, "LLM_annotation"] = extract_label(final_text)
-    
-    # Output
-    if errors:
-        print(f"Completed with {len(errors)} span/context errors (saved in sheet).")
     write_output(td, args, run)
 
 
@@ -611,9 +478,6 @@ def main():
     if args.promptstrat == "context-agnostic_zero-shot":
         for num in range(args.runs):
             run_context_agnostic_zero_shot(td, args, run=num+1)
-    elif args.promptstrat == "context-ondemand_zero-shot":
-        for num in range(args.runs):
-            run_context_ondemand_zero_shot(td, args, run=num+1)
     elif args.promptstrat == "context-via-permalink":
         for num in range(args.runs):
             run_context_permalink_zero_shot(td, args, run=num+1)
