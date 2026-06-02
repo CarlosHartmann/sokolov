@@ -85,9 +85,13 @@ def handle_args() -> argparse.Namespace:
         if not os.getenv('ANTHROPIC_API_KEY'):
             print("ANTHROPIC_API_KEY environment variable required for Claude models")
             exit()
-    else:
+    elif args.llm.startswith('chatgpt'):
         if not os.getenv('OPENAI_API_KEY'):
             print("OPENAI_API_KEY environment variable required for OpenAI models")
+            exit()
+    else:
+        if not os.getenv('OPENROUTER_API_KEY'):
+            print("OPENROUTER_API_KEY environment variable required for OpenRouter models")
             exit()
     
     return args
@@ -376,6 +380,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
             client=client,
             model=args.llm,
             prompt_text=prompt_filled,
+            system_message=args.system_message if hasattr(args, "system_message") else "",
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
             #max_output_tokens=getattr(args, "max_output_tokens", 1024),

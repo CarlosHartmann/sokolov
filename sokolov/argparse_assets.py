@@ -56,7 +56,7 @@ def excel_file(string) -> str:
 
 def define_parser() -> argparse.ArgumentParser:
     """Define console argument parser."""
-    parser = argparse.ArgumentParser(description="Keyword search comments from the Pushshift data dumps")
+    parser = argparse.ArgumentParser()
 
     # directories
     parser.add_argument('--inputfile', '-IF', type=excel_file, required=True,
