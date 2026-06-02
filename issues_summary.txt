@@ -1,0 +1,55 @@
+Most likely this was not a model failure. It is mainly a pipeline/routing issue plus an instruction mismatch.
+
+Findings (ordered by impact)
+1. Your run with model name openai/gpt-5 was not treated as an OpenAI-native path.
+   - Routing checks only recognize names starting with chatgpt in sokolov/shagohod.py (line 201) and sokolov/shagohod.py (line 324).
+   - So openai/gpt-5 falls into the non-chatgpt branch.
+
+2. Non-chatgpt/non-claude models are always forced to OpenRouter due to a hard bug.
+   - The condition in sokolov/shagohod.py (line 246) is effectively always true: is_deepseek or True.
+   - That means your openai/gpt-5 call was definitely executed through OpenRouter.
+
+3. The system message file was not read; the file path string itself was sent.
+   - Call sites pass args.system_message directly in sokolov/shagohod.py (line 383) and sokolov/shagohod.py (line 449).
+   - OpenRouter payload inserts that value as system content in sokolov/openrouter_assets.py (line 28).
+   - So the model likely got something like /.../system_message.txt as instruction text, not the file contents.
+
+4. URL-following was requested in prompt text, but no browsing/tool access is configured in the request.
+   - OpenRouter call in sokolov/openrouter_assets.py (line 18) only sends plain chat messages and temperature.
+   - No tool/web-browsing mechanism is attached.
+   - Therefore "if you do access it..." is usually non-actionable: the model can classify from local sentence alone and never claim link access.
+
+5. Prompt wording makes the phrase conditional, not mandatory.
+   - In prompts/context_permalink_with-justification.txt (line 32), the phrase is required only if context is accessed.
+   - If the model does not access context (or cannot), the phrase will never appear.
+   - This matches what you observed in the output CSV.
+
+Why this happened in your exact command
+- Your model string openai/gpt-5 did not match chatgpt* checks.
+- The always-true branch sent requests to OpenRouter.
+- No browsing/tooling existed there.
+- System message likely was not actually applied (path sent instead of content).
+- So the model did sentence-only disambiguation and never emitted the access phrase.
+
+Recommended fixes
+1. Fix routing logic first.
+   - Replace the always-true branch with explicit branches.
+   - Support provider-prefixed model IDs like openai/gpt-5 explicitly.
+
+2. Load system message file contents before API calls.
+   - Convert args.system_message path to text once, then pass text.
+
+3. Change prompt contract to explicit reporting.
+   - Require a field like CONTEXT_USED: yes/no on every response.
+   - If yes, require REASON: ....
+
+4. Add a post-response validator.
+   - If CONTEXT_USED is yes but reason missing, retry once with correction prompt.
+
+5. If true context use is required, fetch context yourself in code.
+   - Do not rely on model web browsing from a URL.
+   - Pull context text via local files/API and inject into prompt.
+
+Optional additional cleanup
+- sokolov/shagohod.py (line 292): function can return None when URL placeholder is absent (no fallback return currently).
+- sokolov/shagohod.py (line 281): context filename candidate has a typo in f-string (.txt)).
