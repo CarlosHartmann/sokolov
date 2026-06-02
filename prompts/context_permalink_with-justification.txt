@@ -25,8 +25,15 @@ The gender is not known by the speaker but it is clearly a single person, "the b
 The relevant form of 'they' is highlighted with two %-symbols around it. Please make sure that the very last word in your answer is the category of 'they' that you believe it belongs to, so either "plural", "generic", or "singular". This is imperative because your reply will be read by code which otherwise fails.
 Keep your answer brief and to the point.
 
+You must always include context-usage reporting in your answer, even if no context was needed:
+- Include a line exactly in this format: "CONTEXT_ACCESSED: yes" or "CONTEXT_ACCESSED: no"
+- If context was accessed, include a second line in this format: "CONTEXT_REASON: [brief reason]"
+- If context was not accessed, include a second line exactly as: "CONTEXT_REASON: n/a"
+
+After these lines, provide your brief reasoning and make sure the very last word of your entire answer is still exactly one of: plural, generic, singular.
+
 The text in question:
 ```{{TEXT}}```
 
-In case you need context to disambiguate the pronoun in question, you can access the comment here: {{URL}}
-If you do access it, please include the phrase "context had to be accessed because [reason]" in your reply with a brief reasoning in lieu of [reason].
+In case you need context to disambiguate the pronoun in question, and please only then, you can access the comment here: {{URL}}
+If you do access it, set CONTEXT_ACCESSED to yes and provide the reason in CONTEXT_REASON.

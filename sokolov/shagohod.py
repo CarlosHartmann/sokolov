@@ -208,6 +208,8 @@ def ask_llm_text(
     retries: int = 3,
     base_sleep: float = 1.0,
     max_output_tokens: int | None = None,
+    web_search_required: bool = False,
+    web_search_reasoning_effort: Optional[str] = None,
     _allow_reasoning: bool = False,
     _chat_fallback_model: str = "gpt-4o-mini",
     temperature: Optional[float] = None,
@@ -246,6 +248,10 @@ def ask_llm_text(
                     kwargs: dict[str, Any] = {"model": openai_model, "input": prompt_text}
                     if system_message:
                         kwargs["instructions"] = system_message
+                    if web_search_required:
+                        kwargs["tools"] = [{"type": "web_search"}]
+                        kwargs["tool_choice"] = "required"
+                        kwargs["reasoning"] = {"effort": web_search_reasoning_effort or "low"}
                     if max_output_tokens is not None:
                         kwargs["max_output_tokens"] = max_output_tokens
                     if temperature is not None:
@@ -254,6 +260,8 @@ def ask_llm_text(
                         kwargs["seed"] = seed
                     resp = client.responses.create(**kwargs)
                 else:  # fallback to Chat Completions
+                    if web_search_required:
+                        raise ValueError("Mandatory web_search requires OpenAI Responses API support.")
                     messages = []
                     if system_message:
                         messages.append({"role": "system", "content": system_message})
@@ -446,7 +454,11 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
     """
     Like run_context_agnostic_zero_shot, but also injects a permalink from td['permalink']
     into the prompt template (supports {{URL}}/{{LINK}}/{{PERMALINK}} or a second {{TEXT}}/{}).
+    This strategy mandates OpenAI Responses web search for every request.
     """
+    if not is_openai_model(args.llm):
+        raise ValueError("context-via-permalink requires an OpenAI GPT model because web_search is mandatory.")
+
     client = get_client(args.llm)
 
     # Respect --limit for processing
@@ -494,6 +506,8 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             system_message=getattr(args, "system_message_text", ""),
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
+            web_search_required=True,
+            web_search_reasoning_effort="low",
             # If you want “no limit”, pass None (or leave commented)
             # max_output_tokens=getattr(args, "max_output_tokens", None),
             seed=getattr(args, "seed", None),
