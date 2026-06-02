@@ -28,8 +28,6 @@ def count_tokens(text: str) -> int:
     num_tokens = len(encoding.encode(text))
     return num_tokens
 
-api_key ="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"
-
 def moderation_check(worksheet, output_directory):
     # Identify the "comment_body" column
     for column in worksheet.iter_cols(1, worksheet.max_column):
@@ -74,7 +72,7 @@ def get_flagged_categories(comment):
         'https://api.openai.com/v1/moderations',
         headers={
             'Content-Type': 'application/json',
-            'Authorization': f'Bearer {api_key}',
+            'Authorization': f'Bearer {openai.api_key}',
         },
         json={
             'input': comment
@@ -98,7 +96,7 @@ def get_llm_response(prompt, llm):
         'https://api.openai.com/v1/chat/completions',
         headers={
             'Content-Type': "application/json",
-            'Authorization': f"Bearer {api_key}"
+            'Authorization': f"Bearer {openai.api_key}"
         },
         json={
             'model': llm,

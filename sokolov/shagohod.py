@@ -35,6 +35,21 @@ LABEL_REGEX = re.compile(r"\b(plural|generic|singular)\b", re.IGNORECASE)
 MORE_CONTEXT_REGEX = re.compile(r"\bmore\s+context\b[.!?)\"'\]]*\s*$", re.IGNORECASE)
 
 
+def is_claude_model(model_name: str) -> bool:
+    return model_name.lower().startswith("claude")
+
+
+def is_openai_model(model_name: str) -> bool:
+    name = model_name.lower()
+    return name.startswith("chatgpt") or name.startswith("gpt-") or name.startswith("openai/")
+
+
+def normalize_openai_model_name(model_name: str) -> str:
+    if model_name.lower().startswith("openai/"):
+        return model_name.split("/", 1)[1]
+    return model_name
+
+
 def define_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
@@ -85,7 +100,7 @@ def handle_args() -> argparse.Namespace:
         if not os.getenv('ANTHROPIC_API_KEY'):
             print("ANTHROPIC_API_KEY environment variable required for Claude models")
             exit()
-    elif args.llm.startswith('chatgpt'):
+    elif is_openai_model(args.llm):
         if not os.getenv('OPENAI_API_KEY'):
             print("OPENAI_API_KEY environment variable required for OpenAI models")
             exit()
@@ -93,6 +108,11 @@ def handle_args() -> argparse.Namespace:
         if not os.getenv('OPENROUTER_API_KEY'):
             print("OPENROUTER_API_KEY environment variable required for OpenRouter models")
             exit()
+
+    args.system_message_text = ""
+    if args.system_message:
+        with open(args.system_message, "r", encoding="utf-8") as infile:
+            args.system_message_text = infile.read()
     
     return args
 
@@ -184,7 +204,7 @@ def ask_llm_text(
     client,  # Accepts either OpenAI or Anthropic client
     model: str,
     prompt_text: str,
-    system_message: str, # filepath
+    system_message: str,
     retries: int = 3,
     base_sleep: float = 1.0,
     max_output_tokens: int | None = None,
@@ -197,20 +217,21 @@ def ask_llm_text(
     Send prompt_text to OpenAI, Anthropic, or OpenRouter with robust extraction and retries.
     """
     last_exc: Optional[Exception] = None
-    is_claude = model.startswith('claude')
-    is_chatgpt = model.startswith('chatgpt')
-    is_deepseek = model.startswith('deepseek')
+    is_claude = is_claude_model(model)
+    is_openai = is_openai_model(model)
 
     for attempt in range(retries): # tries 3 times by default
         text = None
         try: #
             if is_claude:
                 # Anthropic API call
-                kwargs = {
+                kwargs: dict[str, Any] = {
                     "model": model,
                     "max_tokens": max_output_tokens or 1024,
                     "messages": [{"role": "user", "content": prompt_text}]
                 }
+                if system_message:
+                    kwargs["system"] = system_message
                 if temperature is not None:
                     kwargs["temperature"] = temperature
                 
@@ -218,10 +239,13 @@ def ask_llm_text(
                 # Extract text from Anthropic response
                 text = resp.content[0].text if resp.content else None
                 
-            elif is_chatgpt:
+            elif is_openai:
                 # OpenAI API call (your existing logic)
+                openai_model = normalize_openai_model_name(model)
                 if hasattr(client, "responses"):  # modern SDK
-                    kwargs = dict(model=model, input=prompt_text)
+                    kwargs: dict[str, Any] = {"model": openai_model, "input": prompt_text}
+                    if system_message:
+                        kwargs["instructions"] = system_message
                     if max_output_tokens is not None:
                         kwargs["max_output_tokens"] = max_output_tokens
                     if temperature is not None:
@@ -230,10 +254,14 @@ def ask_llm_text(
                         kwargs["seed"] = seed
                     resp = client.responses.create(**kwargs)
                 else:  # fallback to Chat Completions
-                    kwargs = dict(
-                        model=model,
-                        messages=[{"role": "user", "content": prompt_text}]
-                    )
+                    messages = []
+                    if system_message:
+                        messages.append({"role": "system", "content": system_message})
+                    messages.append({"role": "user", "content": prompt_text})
+                    kwargs: dict[str, Any] = {
+                        "model": openai_model,
+                        "messages": messages,
+                    }
                     if max_output_tokens is not None:
                         kwargs["max_tokens"] = max_output_tokens
                     if temperature is not None:
@@ -243,8 +271,8 @@ def ask_llm_text(
                     resp = client.chat.completions.create(**kwargs)
 
                 text = extract_openai_text(resp)
-            elif is_deepseek or True:
-                # OpenRouter API call for DeepSeek or any other model name
+            else:
+                # OpenRouter API call for non-Anthropic, non-OpenAI models
                 text = openrouter_request(
                     prompt=prompt_text,
                     system_message=system_message,
@@ -280,12 +308,12 @@ def load_context(context_dir: Path, id_value: Any) -> Tuple[str, Path]:
     Load context text for this item. Tries exact filename match and `<ID>.txt`.
     Returns (context_text, path). Raises FileNotFoundError if missing.
     """
-    candidates = [os.path.join(context_dir, str(id_value)), os.path.join(context_dir, f"{id_value}.txt)")]
+    candidates = [os.path.join(context_dir, str(id_value)), os.path.join(context_dir, f"{id_value}.txt")]
     for p in candidates:
         if os.path.isfile(p):
             with open(p, 'r', encoding='utf-8') as file:
                 text = file.read()
-            return text, p
+            return text, Path(p)
     raise FileNotFoundError(f"No context file for ID {id_value} in {context_dir}")
 
 
@@ -316,22 +344,39 @@ def fill_prompt_with_sentence_and_url(prompt_template: str, sentence: str, url: 
             tpl = f"{tpl}\n\nText in question:\n{sentence}"
         return tpl
 
+    if "{{TEXT}}" in tpl:
+        tpl = tpl.replace("{{TEXT}}", sentence)
+    elif "{}" in tpl:
+        tpl = tpl.replace("{}", sentence, 1)
+    else:
+        tpl = f"{tpl}\n\nText in question:\n{sentence}"
+
+    if url:
+        tpl = f"{tpl}\n\nPermalink:\n{url}"
+
+    return tpl
+
 
 def get_client(model_name: str):
     """Return appropriate client based on model name"""
-    if model_name.startswith('claude'):
+    if is_claude_model(model_name):
         return Anthropic()  # Uses ANTHROPIC_API_KEY env var
-    elif model_name.startswith('chatgpt'):
+    elif is_openai_model(model_name):
         return OpenAI()  # Uses OPENAI_API_KEY env var
     else:
         return None  # OpenRouter does not need a client object
 
 
-def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
+def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int):
     """
     Write the dataframe to CSV at the specified path.
     """
     base = f"results_{args.promptstrat}_{args.llm.replace("/", "-")}_run{run}"
+
+    prompt_name = Path(args.promptfile).stem.lower()
+    if "with-justification" in prompt_name:
+        base += "_with-justification"
+
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"
     output_p = os.path.join(args.outputdir, f"{base}.csv")
@@ -339,7 +384,7 @@ def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
     print(f"Results saved to {output_p}")
 
 
-def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
+def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int):
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
     """
@@ -380,7 +425,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
             client=client,
             model=args.llm,
             prompt_text=prompt_filled,
-            system_message=args.system_message if hasattr(args, "system_message") else "",
+            system_message=getattr(args, "system_message_text", ""),
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
             #max_output_tokens=getattr(args, "max_output_tokens", 1024),
@@ -397,7 +442,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
     write_output(td, args, run)
 
 
-def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int) -> Path:
+def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int):
     """
     Like run_context_agnostic_zero_shot, but also injects a permalink from td['permalink']
     into the prompt template (supports {{URL}}/{{LINK}}/{{PERMALINK}} or a second {{TEXT}}/{}).
@@ -446,7 +491,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             client=client,
             model=args.llm,
             prompt_text=prompt_filled,
-            system_message=args.system_message if hasattr(args, "system_message") else "",
+            system_message=getattr(args, "system_message_text", ""),
             retries=getattr(args, "retries", 3),
             base_sleep=getattr(args, "base_sleep", 1.0),
             # If you want “no limit”, pass None (or leave commented)
