@@ -375,11 +375,8 @@ def get_client(model_name: str):
         return None  # OpenRouter does not need a client object
 
 
-def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int):
-    """
-    Write the dataframe to CSV at the specified path.
-    """
-    base = f"results_{args.promptstrat}_{args.llm.replace("/", "-")}_run{run}"
+def build_output_base(args: argparse.Namespace) -> str:
+    base = f"results_{args.promptstrat}_{args.llm.replace('/', '-')}"
 
     prompt_name = Path(args.promptfile).stem.lower()
     if "with-justification" in prompt_name:
@@ -387,8 +384,30 @@ def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int):
 
     if getattr(args, "limit", None):
         base += f"_top{args.limit}"
-    output_p = os.path.join(args.outputdir, f"{base}.csv")
+
+    return base
+
+
+def get_output_path(args: argparse.Namespace, run: int, in_progress: bool) -> str:
+    base = build_output_base(args)
+    suffix = f"_running_run{run}" if in_progress else f"_run{run}"
+    return os.path.join(args.outputdir, f"{base}{suffix}.csv")
+
+
+def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int, in_progress: bool = False):
+    """
+    Write the dataframe to CSV.
+    While a run is active, write to a distinct running filename.
+    When the run is complete, write to the final filename and remove the running file.
+    """
+    output_p = get_output_path(args, run, in_progress=in_progress)
     td.to_csv(output_p, index=False)
+
+    if not in_progress:
+        running_p = get_output_path(args, run, in_progress=True)
+        if os.path.exists(running_p):
+            os.remove(running_p)
+
     print(f"Results saved to {output_p}")
 
 
@@ -425,6 +444,7 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
             td.at[idx, "LLM_response"] = f"[span_error] {e}"
             td.at[idx, "LLM_annotation"] = "unknown_they"
             errors.append((idx, str(e)))
+            write_output(td, args, run, in_progress=True)
             continue
 
         prompt_filled = prompt_template.replace(placeholder, they_sentence)
@@ -443,11 +463,12 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
 
         td.at[idx, "LLM_response"] = response_text
         td.at[idx, "LLM_annotation"] = extract_label(response_text)
+        write_output(td, args, run, in_progress=True)
 
     # Output
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
-    write_output(td, args, run)
+    write_output(td, args, run, in_progress=False)
 
 
 def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int):
@@ -493,6 +514,7 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
             td.at[idx, "LLM_response"] = f"[span_error] {e}"
             td.at[idx, "LLM_annotation"] = "unknown_they"
             errors.append((idx, str(e)))
+            write_output(td, args, run, in_progress=True)
             continue
 
         # Fill both placeholders (sentence + permalink)
@@ -519,11 +541,12 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
 
         td.at[idx, "LLM_response"] = response_text
         td.at[idx, "LLM_annotation"] = extract_label(response_text)
+        write_output(td, args, run, in_progress=True)
 
     # Output
     if errors:
         print(f"Completed with {len(errors)} span/parsing errors (saved in sheet).")
-    write_output(td, args, run)
+    write_output(td, args, run, in_progress=False)
 
 def main():
     args = handle_args()

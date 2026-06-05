@@ -35,5 +35,5 @@ After these lines, provide your brief reasoning and make sure the very last word
 The text in question:
 ```{{TEXT}}```
 
-In case you need context to disambiguate the pronoun in question, and please only then, you can access the comment here: {{URL}}
+In case you need context to disambiguate the pronoun in question you can access the comment here: {{URL}}
 If you do access it, set CONTEXT_ACCESSED to yes and provide the reason in CONTEXT_REASON.
