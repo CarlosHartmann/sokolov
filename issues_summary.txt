@@ -53,3 +53,6 @@ Recommended fixes
 Optional additional cleanup
 - sokolov/shagohod.py (line 292): function can return None when URL placeholder is absent (no fallback return currently).
 - sokolov/shagohod.py (line 281): context filename candidate has a typo in f-string (.txt)).
+
+TODO
+- [x] Repeat the three-run context-via-permalink experiment with moonshotai/kimi-k3 (done 2026-10-17).

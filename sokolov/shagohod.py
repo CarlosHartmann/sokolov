@@ -72,6 +72,8 @@ def define_parser() -> argparse.ArgumentParser:
 
     parser.add_argument('--limit', '-L', type=int, required=False, default=None,
                         help="Limit the number of rows to be processed.")
+    parser.add_argument('--resume', action="store_true",
+                        help="Continue from existing output files for each run (the running file, else the final file), only querying rows whose response is empty or failed.")
     
     # currently not implemented. Shagohod is intended as a limited-run script using data that are known to be moderation-safe.
     #parser.add_argument('--moderation', '-M', action="store_true",
@@ -284,7 +286,8 @@ def ask_llm_text(
                 text = openrouter_request(
                     prompt=prompt_text,
                     system_message=system_message,
-                    model=model
+                    model=model,
+                    web_search_required=web_search_required,
                 )
                 resp = text  # for consistency in return value
 
@@ -411,6 +414,57 @@ def write_output(td: pd.DataFrame, args: argparse.Namespace, run: int, in_progre
     print(f"Results saved to {output_p}")
 
 
+# Responses that mean the request did not produce an answer and should be retried on resume
+FAILED_RESPONSE_VALUES = {"", "None", "nan", "[no_text_returned]"}
+FAILED_RESPONSE_PREFIXES = ("[api_error]",)
+# Provider-side refusals returned as message content (seen with xiaomi/mimo-v2.6-pro)
+FAILED_RESPONSE_SUBSTRINGS = ("The request was rejected because it was considered high risk",)
+
+
+def is_response_missing(value: Any) -> bool:
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return True
+    value = str(value).strip()
+    return (
+        value in FAILED_RESPONSE_VALUES
+        or value.startswith(FAILED_RESPONSE_PREFIXES)
+        or any(marker in value for marker in FAILED_RESPONSE_SUBSTRINGS)
+    )
+
+
+def load_resume_state(td: pd.DataFrame, args: argparse.Namespace, run: int) -> pd.Series:
+    """
+    Copy LLM_response/LLM_annotation from an existing output file for this run into td
+    and return a boolean Series marking the rows that still need a response.
+    Prefers the running file over the final file.
+    """
+    todo = pd.Series(True, index=td.index)
+    if not getattr(args, "resume", False):
+        return todo
+
+    source = None
+    for in_progress in (True, False):
+        candidate = get_output_path(args, run, in_progress=in_progress)
+        if os.path.exists(candidate):
+            source = candidate
+            break
+    if source is None:
+        print(f"Run {run}: no existing output found, starting from scratch.")
+        return todo
+
+    prev = pd.read_csv(source, dtype=str, keep_default_na=False)
+    if len(prev) != len(td) or list(prev["comment_body"]) != list(td["comment_body"].fillna("").astype(str)):
+        raise ValueError(f"Cannot resume from {source}: its rows do not match the input data.")
+
+    for col in ("LLM_response", "LLM_annotation"):
+        values = prev[col].replace("", pd.NA) if col in prev.columns else pd.NA
+        td[col] = pd.Series(values, dtype="string").set_axis(td.index)
+
+    todo = td["LLM_response"].map(is_response_missing).astype(bool)
+    print(f"Run {run}: resuming from {source}, {int(todo.sum())} of {len(td)} rows still need a response.")
+    return todo
+
+
 def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, run: int):
     """
     Run a context-agnostic zero-shot experiment. Uses `ask_llm_text` for prompt sending.
@@ -430,6 +484,12 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
         else:
             td[col] = td[col].astype("string")
 
+    todo = load_resume_state(td, args, run)
+    if not todo.any():
+        print(f"Run {run}: already complete.")
+        write_output(td, args, run, in_progress=False)
+        return
+
     # Prompt template + placeholder
     prompt_template = Path(args.promptfile).read_text(encoding="utf-8")
     placeholder = "{{TEXT}}" if "{{TEXT}}" in prompt_template else "{}"
@@ -437,6 +497,8 @@ def run_context_agnostic_zero_shot(td: pd.DataFrame, args: argparse.Namespace, r
     # Iterate
     errors = []
     for idx, text, span in td[["comment_body", "span"]].itertuples(index=True, name=None):
+        if not todo[idx]:
+            continue
         try:
             start, end = parse_span(span)
             they_sentence = mark_span(text, start, end, marker="%")
@@ -475,11 +537,8 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
     """
     Like run_context_agnostic_zero_shot, but also injects a permalink from td['permalink']
     into the prompt template (supports {{URL}}/{{LINK}}/{{PERMALINK}} or a second {{TEXT}}/{}).
-    This strategy mandates OpenAI Responses web search for every request.
+    This strategy enables web search for every request.
     """
-    if not is_openai_model(args.llm):
-        raise ValueError("context-via-permalink requires an OpenAI GPT model because web_search is mandatory.")
-
     client = get_client(args.llm)
 
     # Respect --limit for processing
@@ -495,6 +554,12 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
         else:
             td[col] = td[col].astype("string")
 
+    todo = load_resume_state(td, args, run)
+    if not todo.any():
+        print(f"Run {run}: already complete.")
+        write_output(td, args, run, in_progress=False)
+        return
+
     # Prompt template
     prompt_template = Path(args.promptfile).read_text(encoding="utf-8")
 
@@ -507,6 +572,8 @@ def run_context_permalink_zero_shot(td: pd.DataFrame, args: argparse.Namespace, 
         raise KeyError(f"Missing required columns for permalink runner: {missing}")
 
     for idx, text, span, permalink in td[cols_needed].itertuples(index=True, name=None):
+        if not todo[idx]:
+            continue
         try:
             start, end = parse_span(span)
             they_sentence = mark_span(text, start, end, marker="%")
